@@ -13,3 +13,8 @@ keywords = ["sabi", "redis", "data access"]
 categories = ["database"]
 
 [dependencies]
+errs = "0.2.0"
+override_macro = "0.1.0"
+r2d2 = "0.8.10"
+redis = { version = "0.32", features = ["r2d2"] }
+sabi-rust = "0.2"
