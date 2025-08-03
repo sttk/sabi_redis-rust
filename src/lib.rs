@@ -1,14 +1,6 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+// Copyright (C) 2025 Takayuki Sato. All Rights Reserved.
+// This program is free software under MIT License.
+// See the file LICENSE in this distribution for more details.
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+mod standalone;
+pub use standalone::{RedisDataConn, RedisDataSrc, RedisDataSrcError};
