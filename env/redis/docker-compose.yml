@@ -1,6 +1,0 @@
-services:
-  redis.local:
-    container_name: redis_local
-    image: redis:8.0
-    ports:
-      - "6379:6379"
