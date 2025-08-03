@@ -1,20 +1,22 @@
 [package]
 name = "sabi_redis"
-version = "0.1.0"
+version = "0.0.0"
 authors = ["Takayuki Sato <sttk.xslet@gmail.com>"]
 edition = "2021"
 rust-version = "1.85.1"
 description = "The sabi data access library for Redis in Rust"
-documentation = "https://docs.rs/sabi-rust"
+documentation = "https://docs.rs/sabi_redis"
 readme = "README.md"
 repository = "https://github.com/sttk/sabi_redis-rust"
 license = "MIT"
-keywords = ["sabi", "redis", "data access"]
+keywords = ["sabi", "redis", "data", "access"]
 categories = ["database"]
 
 [dependencies]
-errs = "0.2.0"
-override_macro = "0.1.0"
-r2d2 = "0.8.10"
+errs = "0.2"
+r2d2 = "0.8"
 redis = { version = "0.32", features = ["r2d2"] }
 sabi-rust = "0.2"
+
+[dev-dependencies]
+override_macro = "0.1"
