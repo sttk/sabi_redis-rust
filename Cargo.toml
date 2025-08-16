@@ -16,7 +16,7 @@ categories = ["database"]
 errs = "0.2"
 r2d2 = "0.8"
 redis = { version = "0.32", features = ["r2d2"] }
-sabi-rust = "0.2"
+sabi-rust = "0.4"
 
 [dev-dependencies]
 override_macro = "0.1"

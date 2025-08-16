@@ -184,18 +184,18 @@ mod test_redis {
 
     #[test]
     fn ok() {
-        let mut hub = DataHub::new();
-        hub.uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379"));
-        if let Err(err) = hub.run(sample_logic) {
+        let mut data = DataHub::new();
+        data.uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379"));
+        if let Err(err) = sabi::run!(sample_logic, data) {
             panic!("{:?}", err);
         }
     }
 
     #[test]
     fn fail() {
-        let mut hub = DataHub::new();
-        hub.uses("redis", RedisDataSrc::new("xxxxx"));
-        if let Err(err) = hub.run(sample_logic) {
+        let mut data = DataHub::new();
+        data.uses("redis", RedisDataSrc::new("xxxxx"));
+        if let Err(err) = sabi::run!(sample_logic, data) {
             if let Ok(r) = err.reason::<sabi::DataHubError>() {
                 match r {
                     sabi::DataHubError::FailToSetupLocalDataSrcs { errors } => {
