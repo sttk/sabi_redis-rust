@@ -11,45 +11,106 @@ use std::cell;
 use std::fmt::Debug;
 use std::mem;
 
+/// Represents a reason for errors that can occur during `RedisDataSrc` operations,
+/// to be passed to `errs::Err`.
 #[derive(Debug)]
 pub enum RedisDataSrcError {
+    /// Indicates that a connection was requested before `RedisDataSrc` was set up.
     NotSetupYet,
+
+    /// Indicates that a setup operation was attempted on an already-configured `RedisDataSrc`.
     AlreadySetup,
-    FailToOpenClient { connection_info: String },
+
+    /// Indicates a failure to open a connection from the `redis::Client` to the Redis server.
+    /// Contains the connection information string that caused the failure.
+    FailToOpenClient {
+        /// The connection information string that caused the failure.
+        connection_info: String,
+    },
+
+    /// Indicates a failure to build the Redis connection pool.
     FailToBuildPool,
+
+    /// Indicates a failure to get a Redis connection from the pool.
     FailToGetConnectionFromPool,
 }
 
+/// A session-scoped connection to the Redis server.
+///
+/// This struct holds a pooled Redis connection and provides a `get_connection` method
+/// to access it. It also provides a "force back" mechanism for handling transaction failures.
+/// Since Redis does not support rollbacks, changes are committed with each update operation.
+/// The `add_force_back` method allows registering functions to manually revert changes
+/// if an error occurs during a multi-step process or a transaction involving
+/// other external data sources.
 pub struct RedisDataConn {
     conn: r2d2::PooledConnection<redis::Client>,
     force_back_vec: Vec<fn(&mut redis::Connection) -> Result<(), Err>>,
 }
 
 impl RedisDataConn {
+    /// Returns a mutable reference to the underlying Redis connection.
+    ///
+    /// This reference allows direct access to Redis commands.
     pub fn get_connection(&mut self) -> &mut redis::Connection {
         &mut self.conn
     }
+
+    /// Adds a function to the list of "force back" operations.
+    ///
+    /// The provided function will be called if the transaction needs to be reverted
+    /// due to a failure in a subsequent operation.
     pub fn add_force_back(&mut self, f: fn(&mut redis::Connection) -> Result<(), Err>) {
         self.force_back_vec.push(f);
     }
 }
 
 impl DataConn for RedisDataConn {
+    /// Commits the transaction.
+    ///
+    /// Note that Redis does not have a native rollback mechanism. All changes are committed
+    /// as they are executed. This method is provided to satisfy the `DataConn` trait but
+    /// does not perform any action.
     fn commit(&mut self, _ag: &mut AsyncGroup) -> Result<(), Err> {
         Ok(())
     }
+
+    /// Rolls back the transaction.
+    ///
+    /// This method is provided to satisfy the `DataConn` trait but does not perform any action
+    /// since Redis does not support native rollbacks. The `force_back` mechanism should
+    /// be used instead.
     fn rollback(&mut self, _ag: &mut AsyncGroup) {}
+
+    /// Checks if a "force back" operation is required.
+    ///
+    /// Always returns `true` because Redis operations are committed immediately,
+    /// and `force_back` is the only way to undo a failure.
     fn should_force_back(&self) -> bool {
         true
     }
+
+    /// Executes all registered "force back" functions.
+    ///
+    /// This method is intended to be called when a transaction fails to
+    /// manually revert changes.
     fn force_back(&mut self, _ag: &mut AsyncGroup) {
         for f in self.force_back_vec.iter() {
             let _ = f(&mut self.conn);
         }
     }
+
+    /// Closes the connection.
+    ///
+    /// This method is provided to satisfy the `DataConn` trait but
+    /// does not perform any action as pooled connections are managed by the `r2d2` pool.
     fn close(&mut self) {}
 }
 
+/// Manages a connection pool for a Redis data source.
+///
+/// This struct is responsible for setting up the Redis connection pool
+/// using a `redis::Client` and creating new `RedisDataConn` instances from the pool.
 pub struct RedisDataSrc<T>
 where
     T: redis::IntoConnectionInfo + Sized + Debug,
@@ -62,6 +123,10 @@ impl<T> RedisDataSrc<T>
 where
     T: redis::IntoConnectionInfo + Sized + Debug,
 {
+    /// Creates a new `RedisDataSrc` instance.
+    ///
+    /// The connection information is stored, but the connection pool is not built
+    /// until the `setup` method is called.
     pub fn new(conn_info: T) -> Self {
         Self {
             pool: cell::OnceCell::new(),
@@ -74,6 +139,11 @@ impl<T> DataSrc<RedisDataConn> for RedisDataSrc<T>
 where
     T: redis::IntoConnectionInfo + Sized + Debug,
 {
+    /// Sets up the Redis connection pool.
+    ///
+    /// This method creates a `redis::Client` and builds an `r2d2::Pool`.
+    /// It must be called before `create_data_conn`. It will return an error if
+    /// called more than once on the same instance.
     fn setup(&mut self, _ag: &mut AsyncGroup) -> Result<(), Err> {
         let mut conn_info_opt = None;
         mem::swap(&mut conn_info_opt, &mut self.conn_info);
@@ -103,8 +173,16 @@ where
         }
     }
 
+    /// Closes the data source.
+    ///
+    /// This method does not perform any action since the connection pool
+    /// will be automatically dropped when the struct goes out of scope.
     fn close(&mut self) {}
 
+    /// Creates a new `RedisDataConn` instance.
+    ///
+    /// This method retrieves a connection from the internal pool. It will return a
+    /// `NotSetupYet` error if the data source has not been set up.
     fn create_data_conn(&mut self) -> Result<Box<RedisDataConn>, Err> {
         if let Some(pool) = self.pool.get() {
             return match pool.get() {
