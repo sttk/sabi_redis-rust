@@ -22,11 +22,15 @@ pub enum RedisDataSrcError {
 
 pub struct RedisDataConn {
     conn: r2d2::PooledConnection<redis::Client>,
+    force_back_vec: Vec<fn(&mut redis::Connection) -> Result<(), Err>>,
 }
 
 impl RedisDataConn {
     pub fn get_connection(&mut self) -> &mut redis::Connection {
         &mut self.conn
+    }
+    pub fn add_force_back(&mut self, f: fn(&mut redis::Connection) -> Result<(), Err>) {
+        self.force_back_vec.push(f);
     }
 }
 
@@ -38,7 +42,11 @@ impl DataConn for RedisDataConn {
     fn should_force_back(&self) -> bool {
         true
     }
-    fn force_back(&mut self, _ag: &mut AsyncGroup) {}
+    fn force_back(&mut self, _ag: &mut AsyncGroup) {
+        for f in self.force_back_vec.iter() {
+            let _ = f(&mut self.conn);
+        }
+    }
     fn close(&mut self) {}
 }
 
@@ -100,7 +108,10 @@ where
     fn create_data_conn(&mut self) -> Result<Box<RedisDataConn>, Err> {
         if let Some(pool) = self.pool.get() {
             return match pool.get() {
-                Ok(conn) => Ok(Box::new(RedisDataConn { conn })),
+                Ok(conn) => Ok(Box::new(RedisDataConn {
+                    conn,
+                    force_back_vec: Vec::new(),
+                })),
                 Err(e) => Err(Err::with_source(
                     RedisDataSrcError::FailToGetConnectionFromPool,
                     e,
@@ -153,6 +164,26 @@ mod test_redis {
                 Err(e) => Err(Err::with_source(SampleError::FailToDelValue, e)),
             };
         }
+
+        fn set_sample_key_with_force_back(&mut self, val: &str) -> Result<(), Err> {
+            let redis_dc = self.get_data_conn::<RedisDataConn>("redis")?;
+            let conn: &mut redis::Connection = redis_dc.get_connection();
+
+            let result = conn.set("sample_force_back", val);
+
+            redis_dc.add_force_back(|conn| {
+                let r: redis::RedisResult<()> = conn.del("sample_force_back");
+                match r {
+                    Ok(()) => Ok(()),
+                    Err(e) => Err(Err::with_source("fail to force back", e)),
+                }
+            });
+
+            return match result {
+                Ok(()) => Ok(()),
+                Err(e) => Err(Err::with_source(SampleError::FailToSetValue, e)),
+            };
+        }
     }
     impl RedisSampleDataAcc for DataHub {}
 
@@ -161,6 +192,7 @@ mod test_redis {
         fn get_sample_key(&mut self) -> Result<Option<String>, Err>;
         fn set_sample_key(&mut self, value: &str) -> Result<(), Err>;
         fn del_sample_key(&mut self) -> Result<(), Err>;
+        fn set_sample_key_with_force_back(&mut self, val: &str) -> Result<(), Err>;
     }
     #[override_with(RedisSampleDataAcc)]
     impl SampleData for DataHub {}
@@ -192,7 +224,7 @@ mod test_redis {
     }
 
     #[test]
-    fn fail() {
+    fn fail_to_setup() {
         let mut data = DataHub::new();
         data.uses("redis", RedisDataSrc::new("xxxxx"));
         if let Err(err) = sabi::run!(sample_logic, data) {
@@ -216,5 +248,52 @@ mod test_redis {
         } else {
             panic!();
         }
+    }
+
+    fn sample_logic_with_force_back_and_commit(data: &mut impl SampleData) -> Result<(), Err> {
+        data.set_sample_key_with_force_back("Good Morning")?;
+        Ok(())
+    }
+    fn sample_logic_with_force_back_and_force_back(data: &mut impl SampleData) -> Result<(), Err> {
+        data.set_sample_key_with_force_back("Good Afternoon")?;
+        Err(Err::new("XXX"))
+    }
+
+    fn txn_and_commit() {
+        let mut data = DataHub::new();
+        data.uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379"));
+
+        if let Err(err) = sabi::txn!(sample_logic_with_force_back_and_commit, data) {
+            panic!("{:?}", err);
+        }
+
+        let client = redis::Client::open("redis://127.0.0.1:6379").unwrap();
+        let mut conn = client.get_connection().unwrap();
+        let s: redis::RedisResult<Option<String>> = conn.get("sample_force_back");
+        assert_eq!(s.unwrap().unwrap(), "Good Morning");
+
+        let _: redis::RedisResult<()> = conn.del("sample_force_back");
+    }
+
+    fn txn_and_force_back() {
+        let mut data = DataHub::new();
+        data.uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379"));
+
+        if let Err(err) = sabi::txn!(sample_logic_with_force_back_and_force_back, data) {
+            assert_eq!(err.reason::<&str>().unwrap(), &"XXX");
+        } else {
+            panic!();
+        }
+
+        let client = redis::Client::open("redis://127.0.0.1:6379").unwrap();
+        let mut conn = client.get_connection().unwrap();
+        let r: redis::RedisResult<Option<String>> = conn.get("sample_force_back");
+        assert!(r.unwrap().is_none());
+    }
+
+    #[test]
+    fn force_back() {
+        txn_and_commit();
+        txn_and_force_back();
     }
 }
