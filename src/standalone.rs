@@ -78,8 +78,8 @@ impl DataConn for RedisDataConn {
     /// Rolls back the transaction.
     ///
     /// This method is provided to satisfy the `DataConn` trait but does not perform any action
-    /// since Redis does not support native rollbacks. The `force_back` mechanism should
-    /// be used instead.
+    /// since Redis does not support native rollbacks. The `add_force_back` and `force_back`
+    /// mechanism should be used instead.
     fn rollback(&mut self, _ag: &mut AsyncGroup) {}
 
     /// Checks if a "force back" operation is required.
