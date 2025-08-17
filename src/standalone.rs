@@ -108,12 +108,10 @@ where
     fn create_data_conn(&mut self) -> Result<Box<RedisDataConn>, Err> {
         if let Some(pool) = self.pool.get() {
             return match pool.get() {
-                Ok(conn) => {
-                    return Ok(Box::new(RedisDataConn {
-                        conn,
-                        force_back_vec: Vec::new(),
-                    }));
-                }
+                Ok(conn) => Ok(Box::new(RedisDataConn {
+                    conn,
+                    force_back_vec: Vec::new(),
+                })),
                 Err(e) => Err(Err::with_source(
                     RedisDataSrcError::FailToGetConnectionFromPool,
                     e,
