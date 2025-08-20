@@ -227,7 +227,7 @@ mod test_redis {
     trait RedisSampleDataAcc: DataAcc {
         fn get_sample_key(&mut self) -> Result<Option<String>, Err> {
             let redis_dc = self.get_data_conn::<RedisDataConn>("redis")?;
-            let mut conn = redis_dc.get_connection().unwrap();
+            let mut conn = redis_dc.get_connection()?;
             let rslt: redis::RedisResult<Option<String>> = conn.get("sample");
             return match rslt {
                 Ok(opt) => Ok(opt),
@@ -236,7 +236,7 @@ mod test_redis {
         }
         fn set_sample_key(&mut self, val: &str) -> Result<(), Err> {
             let redis_dc = self.get_data_conn::<RedisDataConn>("redis")?;
-            let mut conn = redis_dc.get_connection().unwrap();
+            let mut conn = redis_dc.get_connection()?;
             return match conn.set("sample", val) {
                 Ok(()) => Ok(()),
                 Err(e) => Err(Err::with_source(SampleError::FailToSetValue, e)),
@@ -244,7 +244,7 @@ mod test_redis {
         }
         fn del_sample_key(&mut self) -> Result<(), Err> {
             let redis_dc = self.get_data_conn::<RedisDataConn>("redis")?;
-            let mut conn = redis_dc.get_connection().unwrap();
+            let mut conn = redis_dc.get_connection()?;
             return match conn.del("sample") {
                 Ok(()) => Ok(()),
                 Err(e) => Err(Err::with_source(SampleError::FailToDelValue, e)),
@@ -253,7 +253,7 @@ mod test_redis {
 
         fn set_sample_key_with_force_back(&mut self, val: &str) -> Result<(), Err> {
             let redis_dc = self.get_data_conn::<RedisDataConn>("redis")?;
-            let mut conn = redis_dc.get_connection().unwrap();
+            let mut conn = redis_dc.get_connection()?;
 
             if let Err(e) = conn.set::<&str, &str, ()>("sample_force_back", val) {
                 return Err(Err::with_source(SampleError::FailToSetValue, e));
