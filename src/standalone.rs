@@ -312,9 +312,27 @@ mod test_redis {
     }
 
     #[test]
-    fn ok() {
+    fn ok_by_redis_uri() {
         let mut data = DataHub::new();
         data.uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379"));
+        if let Err(err) = sabi::run!(sample_logic, data) {
+            panic!("{:?}", err);
+        }
+    }
+
+    #[test]
+    fn ok_by_connection_info() {
+        let ci = redis::ConnectionInfo {
+            addr: redis::ConnectionAddr::Tcp(String::from("127.0.0.1"), 6379),
+            redis: redis::RedisConnectionInfo {
+                db: 0,
+                username: None,
+                password: None,
+                protocol: redis::ProtocolVersion::RESP3,
+            },
+        };
+        let mut data = DataHub::new();
+        data.uses("redis", RedisDataSrc::new(ci));
         if let Err(err) = sabi::run!(sample_logic, data) {
             panic!("{:?}", err);
         }
