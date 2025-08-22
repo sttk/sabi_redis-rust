@@ -314,7 +314,7 @@ mod test_redis {
     #[test]
     fn ok_by_redis_uri() {
         let mut data = DataHub::new();
-        data.uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379"));
+        data.uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/0"));
         if let Err(err) = sabi::run!(sample_logic, data) {
             panic!("{:?}", err);
         }
@@ -325,7 +325,7 @@ mod test_redis {
         let ci = redis::ConnectionInfo {
             addr: redis::ConnectionAddr::Tcp(String::from("127.0.0.1"), 6379),
             redis: redis::RedisConnectionInfo {
-                db: 0,
+                db: 1,
                 username: None,
                 password: None,
                 protocol: redis::ProtocolVersion::RESP3,
@@ -374,15 +374,15 @@ mod test_redis {
         Err(Err::new("XXX"))
     }
 
-    fn txn_and_commit() {
+    #[test]
+    fn test_txn_and_commit() {
         let mut data = DataHub::new();
-        data.uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379"));
-
+        data.uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/2"));
         if let Err(err) = sabi::txn!(sample_logic_with_force_back_and_commit, data) {
             panic!("{:?}", err);
         }
 
-        let client = redis::Client::open("redis://127.0.0.1:6379").unwrap();
+        let client = redis::Client::open("redis://127.0.0.1:6379/2").unwrap();
         let mut conn = client.get_connection().unwrap();
         let s: redis::RedisResult<Option<String>> = conn.get("sample_force_back");
         assert_eq!(s.unwrap().unwrap(), "Good Morning");
@@ -392,9 +392,10 @@ mod test_redis {
         let _: redis::RedisResult<()> = conn.del("sample_force_back");
     }
 
-    fn txn_and_force_back() {
+    #[test]
+    fn test_txn_and_force_back() {
         let mut data = DataHub::new();
-        data.uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379"));
+        data.uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/3"));
 
         if let Err(err) = sabi::txn!(sample_logic_with_force_back_and_force_back, data) {
             assert_eq!(err.reason::<&str>().unwrap(), &"XXX");
@@ -402,17 +403,11 @@ mod test_redis {
             panic!();
         }
 
-        let client = redis::Client::open("redis://127.0.0.1:6379").unwrap();
+        let client = redis::Client::open("redis://127.0.0.1:6379/3").unwrap();
         let mut conn = client.get_connection().unwrap();
         let r: redis::RedisResult<Option<String>> = conn.get("sample_force_back");
         assert!(r.unwrap().is_none());
         let r: redis::RedisResult<Option<String>> = conn.get("sample_force_back_2");
         assert!(r.unwrap().is_none());
-    }
-
-    #[test]
-    fn force_back() {
-        txn_and_commit();
-        txn_and_force_back();
     }
 }
