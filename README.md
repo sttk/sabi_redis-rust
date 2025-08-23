@@ -41,7 +41,7 @@ fn main() -> Result<(), errs::Err> {
     // Register a `RedisDataSrc` instance to connect to a Redis server with the key "redis".
     sabi::uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/0"));
 
-    // In this setup process, the registered `RedisDataSrc` instance cnnects to a Redis server.
+    // In this setup process, the registered `RedisDataSrc` instance connects to a Redis server.
     let _auto_shutdown = sabi::setup()?;
 
     my_app()
@@ -80,7 +80,7 @@ trait RedisSayingDataAcc: sabi::DataAcc {
         let mut redis_conn = data_conn.get_connection()?;
 
         if let Err(e) = redis_conn.set("greeting", greeting) {
-            return Err(errs::Err::with_source("fail to set gretting", e));
+            return Err(errs::Err::with_source("fail to set greeting", e));
         }
 
         // Register a force back process to revert updates to Redis when an error occurs.
