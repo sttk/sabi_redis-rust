@@ -45,7 +45,7 @@ mod integration_tests_of_sabi_redis {
             let mut redis_conn = data_conn.get_connection()?;
 
             if let Err(e) = redis_conn.set("greeting", greeting) {
-                return Err(errs::Err::with_source("fail to set gretting", e));
+                return Err(errs::Err::with_source("fail to set greeting", e));
             }
 
             data_conn.add_force_back(|redis_conn| {
