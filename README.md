@@ -20,7 +20,7 @@ In Cargo.toml, write this crate as a dependency:
 
 ```toml
 [dependencies]
-sabi_redis = "0.0.0"
+sabi_redis = "0.1.0"
 ```
 
 ## Usage
@@ -143,7 +143,7 @@ See the file LICENSE in this distribution for more details.
 
 
 [repo-url]: https://github.com/sttk/sabi_redis-rust
-[cratesio-img]: https://img.shields.io/badge/crates.io-ver.0.0.0-fc8d62?logo=rust
+[cratesio-img]: https://img.shields.io/badge/crates.io-ver.0.1.0-fc8d62?logo=rust
 [cratesio-url]: https://crates.io/crates/sabi_redis
 [docrs-img]: https://img.shields.io/badge/doc.rs-sabi_redis-66c2a5?logo=docs.rs
 [docrs-url]: https://docs.rs/sabi_redis
