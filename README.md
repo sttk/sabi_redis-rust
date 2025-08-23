@@ -2,6 +2,108 @@
 
 The sabi data access library for Redis in Rust.
 
+`sabi_redis` is a Rust crate that provides a streamlined way to access various Redis configurations
+within the sabi framework. It includes `DataSrc` and `DataConn` derived classes designed to make
+your development process more efficient
+
+`RedisDataSrc` and `RedisDataConn` are designed for a standalone Redis server and provide
+synchronous connections for processing Redis commands.
+
+Unlike relational databases, Redis does not support data rollbacks. This can lead to data
+inconsistency if a transaction involving both Redis and another database fails mid-process.
+To address this, `sabi_redis` offers three unique features to help developers manage Redis updates
+and revert changes when necessary: *"force back"*, *"pre-commit"*, and *"post-commit"*.
+
+## Installation
+
+In Cargo.toml, write this crate as a dependency:
+
+```toml
+[dependencies]
+sabi_redis = "0.0.0"
+```
+
+## Usage
+
+### For Standalone Server And Synchronous Commands
+
+Here is an example of how to use `RedisDataSrc` and `RedisDataConn` to connect to Redis and
+execute a simple command.
+
+```rust
+use errs;
+use override_macro::{overridable, override_with};
+use redis::TypedCommands;
+use sabi;
+use sabi_redis::{RedisDataSrc, RedisDataConn};
+
+fn main() -> Result<(), errs::Err> {
+    // Register a `RedisDataSrc` instance to connect to a Redis server with the key "redis".
+    sabi::uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/0"));
+
+    // In this setup process, the registered `RedisDataSrc` instance connects to a Redis server.
+    let _auto_shutdown = sabi::setup()?;
+
+    my_app()
+}
+
+fn my_app() -> Result<(), errs::Err> {
+    let mut data = sabi::DataHub::new();
+    sabi::txn!(my_logic, data)
+}
+
+fn my_logic(data: &mut impl MyData) -> Result<(), errs::Err> {
+    let greeting = data.get_greeting()?;
+    data.say_greeting(&greeting)
+}
+
+#[overridable]
+trait MyData {
+    fn get_greeting(&mut self) -> Result<String, errs::Err>;
+    fn say_greeting(&mut self, greeting: &str) -> Result<(), errs::Err>;
+}
+
+#[overridable]
+trait GettingDataAcc: sabi::DataAcc {
+    fn get_greeting(&mut self) -> Result<String, errs::Err> {
+        Ok("Hello!".to_string())
+    }
+}
+
+#[overridable]
+trait RedisSayingDataAcc: sabi::DataAcc {
+    fn say_greeting(&mut self, greeting: &str) -> Result<(), errs::Err> {
+        // Retrieve a `RedisDataConn` instance by the key "redis".
+        let data_conn = self.get_data_conn::<RedisDataConn>("redis")?;
+
+        // Get a Redis connection to execute Redis synchronous commands.
+        let mut redis_conn = data_conn.get_connection()?;
+
+        if let Err(e) = redis_conn.set("greeting", greeting) {
+            return Err(errs::Err::with_source("fail to set greeting", e));
+        }
+
+        // Register a force back process to revert updates to Redis when an error occurs.
+        data_conn.add_force_back(|redis_conn| {
+            let result = redis_conn.del("greeting");
+            if let Err(e) = result {
+                return Err(errs::Err::with_source("fail to force back", e));
+            }
+            Ok(())
+        });
+
+        Ok(())
+    }
+}
+
+impl GettingDataAcc for sabi::DataHub {}
+impl RedisSayingDataAcc for sabi::DataHub {}
+
+#[override_with(GettingDataAcc, RedisSayingDataAcc)]
+impl MyData for sabi::DataHub {}
+```
+
+
 ## Supported Rust versions
 
 This crate supports Rust 1.85.1 or later.
