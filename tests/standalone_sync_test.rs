@@ -49,8 +49,7 @@ mod integration_tests_of_sabi_redis {
             }
 
             data_conn.add_force_back(|redis_conn| {
-                let result = redis_conn.del("greeting");
-                if let Err(e) = result {
+                if let Err(e) = redis_conn.del("greeting") {
                     return Err(errs::Err::with_source("fail to force back", e));
                 }
                 Ok(())
