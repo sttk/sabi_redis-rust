@@ -31,8 +31,8 @@
 //! right before the commit process within `sabi::txn!`.
 //!
 //! By performing Redis updates after all other database updates, you can avoid the need for a
-//! rollback if an error occurs with the other databases. This is a good option if you can meet
-//! the condition that the updated data will not be re-fetched within the same transaction.
+//! rollback if an error occurs with the other databases. This is a good option if you can ensure
+//! that the updated data will not be re-fetched within the same transaction.
 //!
 //! #### Post-Commit
 //!
@@ -42,7 +42,7 @@
 //!
 //! Since it's executed after the commit of the updates to other databases is complete, there's no
 //! need to consider rolling back Redis updates even if an error occurs with the other database
-//! updates. However, you must be aware that if an error happens during the Redis update itself,
+//! updates. However, you must be aware that if an error occurs during the Redis update itself,
 //! the partial updates to Redis cannot be undone, and the other database updates will already be
 //! committed. It would be necessary to ensure that the impact on the system is not critical if
 //! such a situation occurs, and to enable error detection so that manual recovery can be performed
