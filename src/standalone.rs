@@ -271,6 +271,81 @@ impl DataConn for RedisDataConn {
 ///
 /// This struct is responsible for setting up the Redis connection pool
 /// using a `redis::Client` and creating new `RedisDataConn` instances from the pool.
+///
+/// ## Example
+///
+/// ```rust
+/// use errs;
+/// use override_macro::{overridable, override_with};
+/// use redis::TypedCommands;
+/// use sabi;
+/// use sabi_redis::{RedisDataSrc, RedisDataConn};
+///
+/// fn main() -> Result<(), errs::Err> {
+///     // Register a `RedisDataSrc` instance to connect to a Redis server with the key "redis".
+///     sabi::uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/0"));
+///
+///     // In this setup process, the registered `RedisDataSrc` instance connects to a Redis server.
+///     let _auto_shutdown = sabi::setup()?;
+///
+///     my_app()
+/// }
+///
+/// fn my_app() -> Result<(), errs::Err> {
+///     let mut data = sabi::DataHub::new();
+///     sabi::txn!(my_logic, data)
+/// }
+///
+/// fn my_logic(data: &mut impl MyData) -> Result<(), errs::Err> {
+///     let greeting = data.get_greeting()?;
+///     data.say_greeting(&greeting)
+/// }
+///
+/// #[overridable]
+/// trait MyData {
+///     fn get_greeting(&mut self) -> Result<String, errs::Err>;
+///     fn say_greeting(&mut self, greeting: &str) -> Result<(), errs::Err>;
+/// }
+///
+/// #[overridable]
+/// trait GettingDataAcc: sabi::DataAcc {
+///     fn get_greeting(&mut self) -> Result<String, errs::Err> {
+///         Ok("Hello!".to_string())
+///     }
+/// }
+///
+/// #[overridable]
+/// trait RedisSayingDataAcc: sabi::DataAcc {
+///     fn say_greeting(&mut self, greeting: &str) -> Result<(), errs::Err> {
+///         // Retrieve a `RedisDataConn` instance by the key "redis".
+///         let data_conn = self.get_data_conn::<RedisDataConn>("redis")?;
+///
+///         // Get a Redis connection to execute Redis synchronous commands.
+///         let mut redis_conn = data_conn.get_connection()?;
+///
+///         if let Err(e) = redis_conn.set("greeting", greeting) {
+///             return Err(errs::Err::with_source("fail to set greeting", e));
+///         }
+///
+///         // Register a force back process to revert updates to Redis when an error occurs.
+///         data_conn.add_force_back(|redis_conn| {
+///             let result = redis_conn.del("greeting");
+///             if let Err(e) = result {
+///                 return Err(errs::Err::with_source("fail to force back", e));
+///             }
+///             Ok(())
+///         });
+///
+///         Ok(())
+///     }
+/// }
+///
+/// impl GettingDataAcc for sabi::DataHub {}
+/// impl RedisSayingDataAcc for sabi::DataHub {}
+///
+/// #[override_with(GettingDataAcc, RedisSayingDataAcc)]
+/// impl MyData for sabi::DataHub {}
+/// ```
 pub struct RedisDataSrc<T>
 where
     T: redis::IntoConnectionInfo + Sized + Debug,
