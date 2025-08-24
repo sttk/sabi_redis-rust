@@ -129,5 +129,7 @@
 //! }
 //! ```
 
+#[cfg(feature = "sabi_redis-standalone-sync")]
 mod standalone;
+#[cfg(feature = "sabi_redis-standalone-sync")]
 pub use standalone::{RedisDataConn, RedisDataSrc, RedisDataSrcError};
