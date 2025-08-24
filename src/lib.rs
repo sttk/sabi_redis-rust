@@ -2,11 +2,22 @@
 // This program is free software under MIT License.
 // See the file LICENSE in this distribution for more details.
 
-//! This crate provides several `DataSrc` and `DataConn` derived classes to enable data access to
+//! This crate provides several `DataSrc` and `DataConn` derived structs to enable data access to
 //! Redis within the Rust sabi framework.
+//! `DataSrc` and `DataConn` derived structs are provided based on the Redis server configuration
+//! and whether commands are executed synchronously or asynchronously. They include the following
+//! types:
+//!
+//! ## Features
+//!
+//! ### Standalone configuration and synchronous commands
 //!
 //! `RedisDataSrc` and `RedisDataConn` are designed for a standalone Redis server and provide
 //! synchronous connections for processing Redis commands.
+//!
+//! This type requires the `"sabi_redis-standalone-sync"` feature to be enabled.
+//!
+//! #### Example
 //!
 //! ```rust
 //! use errs;
@@ -23,21 +34,25 @@
 //! }
 //! ```
 //!
+//! ## Transaction Rollback Alternative
+//!
 //! Redis does not support transactions like relational databases (RDBs) and lacks the ability to
 //! roll back updated data. Therefore, when used in conjunction with other databases, an
 //! inconsistency can occur if an error happens mid-process: the RDB's updates might be rolled
 //! back, but the Redis updates remain. To address this, this crate offers three features to give
 //! developers an opportunity to revert updates: *"force back"*, *"pre-commit"* and *"post-commit"*.
 //!
-//! #### Force Back
+//! ### Force Back
 //!
-//! The `DataConn` derived class provided by this crate is equipped with the `add_force_back`
+//! The `DataConn` derived struct provided by this crate is equipped with the `add_force_back`
 //! method. You can use this method to store functions in the `DataConn` that will be executed
 //! during the rollback process within `sabi::txn!`.
 //!
 //! This is useful for things like deleting newly added data or reverting data that is unlikely to
 //! have concurrent updates, such as session data. For data that might have concurrent updates,
 //! it would likely require measures like using `WATCH`, `MULTI`, and `EXEC`.
+//!
+//! #### Example
 //!
 //! ```rust
 //! use errs;
@@ -65,15 +80,17 @@
 //! }
 //! ```
 //!
-//! #### Pre-Commit
+//! ### Pre-Commit
 //!
-//! The `DataConn` derived class provided by this crate is equipped with the `add_pre_commit`
+//! The `DataConn` derived struct provided by this crate is equipped with the `add_pre_commit`
 //! method. You can use this method to store functions in the `DataConn` that will be executed
 //! right before the commit process within `sabi::txn!`.
 //!
 //! By performing Redis updates after all other database updates, you can avoid the need for a
 //! rollback if an error occurs with the other databases. This is a good option if you can ensure
 //! that the updated data will not be re-fetched within the same transaction.
+//!
+//! #### Example
 //!
 //! ```rust
 //! use errs;
@@ -95,9 +112,9 @@
 //! }
 //! ```
 //!
-//! #### Post-Commit
+//! ### Post-Commit
 //!
-//! The `DataConn` derived class provided by this crate is equipped with the `add_post_commit`
+//! The `DataConn` derived struct provided by this crate is equipped with the `add_post_commit`
 //! method. You can use this method to store functions in the `DataConn` that will be executed
 //! after the commit process within `sabi::txn!`.
 //!
@@ -108,6 +125,8 @@
 //! committed. It would be necessary to ensure that the impact on the system is not critical if
 //! such a situation occurs, and to enable error detection so that manual recovery can be performed
 //! later.
+//!
+//! #### Example
 //!
 //! ```rust
 //! use errs;
@@ -129,7 +148,11 @@
 //! }
 //! ```
 
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 #[cfg(feature = "sabi_redis-standalone-sync")]
-mod standalone;
+mod standalone_sync;
+
 #[cfg(feature = "sabi_redis-standalone-sync")]
-pub use standalone::{RedisDataConn, RedisDataSrc, RedisDataSrcError};
+#[cfg_attr(docsrs, doc(cfg(feature = "sabi_redis-standalone-sync")))]
+pub use standalone_sync::{RedisDataConn, RedisDataSrc, RedisDataSrcError};
