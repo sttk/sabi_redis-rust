@@ -150,9 +150,20 @@
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
+// standalone server configuration and synchronous commands
+
 #[cfg(feature = "sabi_redis-standalone-sync")]
 mod standalone_sync;
 
 #[cfg(feature = "sabi_redis-standalone-sync")]
 #[cfg_attr(docsrs, doc(cfg(feature = "sabi_redis-standalone-sync")))]
 pub use standalone_sync::{RedisDataConn, RedisDataSrc, RedisDataSrcError};
+
+// standalone server configuration and asynchronous commands
+
+#[cfg(feature = "sabi_redis-standalone-async")]
+mod standalone_async;
+
+#[cfg(feature = "sabi_redis-standalone-async")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sabi_redis-standalone-async")))]
+pub use standalone_async::{RedisAsyncDataConn, RedisAsyncDataSrc, RedisAsyncDataSrcError};

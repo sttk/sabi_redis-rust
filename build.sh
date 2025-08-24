@@ -23,7 +23,17 @@ compile() {
 }
 
 test() {
-  cargo test -- --show-output
+  cargo test --all-features -- --show-output
+  errcheck $?
+}
+
+test_standalone_sync() {
+  cargo test --features="sabi_redis-standalone-sync" -- --show-output
+  errcheck $?
+}
+
+test_standalone_async() {
+  cargo test --features="sabi_redis-standalone-async" -- --show-output
   errcheck $?
 }
 
@@ -80,6 +90,12 @@ else
       compile
       ;;
     test)
+      test
+      ;;
+    test-standalone-sync)
+      test
+      ;;
+    test-standalone-async)
       test
       ;;
     doc)

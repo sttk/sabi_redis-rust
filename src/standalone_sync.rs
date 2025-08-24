@@ -22,18 +22,25 @@ pub enum RedisDataSrcError {
     AlreadySetup,
 
     /// Indicates a failure to open a connection from the `redis::Client` to the Redis server.
-    /// Contains the connection information string and connection pooling configuration string
+    ///
+    /// This contains the connection information string and connection pooling configuration string
     /// that caused the failure.
     FailToOpenClient {
+        /// The connection information string.
+        connection_info: String,
+    },
+
+    /// Indicates a failure to build the Redis connection pool.
+    ///
+    /// This contains the connection information string and connection pooling configuration string
+    /// that caused the failure.
+    FailToBuildPool {
         /// The connection information string.
         connection_info: String,
 
         /// The connection pooling configuration string.
         pool_config: String,
     },
-
-    /// Indicates a failure to build the Redis connection pool.
-    FailToBuildPool,
 
     /// Indicates a failure to get a Redis connection from the pool.
     FailToGetConnectionFromPool,
@@ -268,7 +275,11 @@ impl DataConn for RedisDataConn {
     ///
     /// This method is provided to satisfy the `DataConn` trait but
     /// does not perform any action as pooled connections are managed by the `r2d2` pool.
-    fn close(&mut self) {}
+    fn close(&mut self) {
+        self.pre_commit_vec.clear();
+        self.post_commit_vec.clear();
+        self.force_back_vec.clear();
+    }
 }
 
 /// Manages a connection pool for a Redis data source.
@@ -406,22 +417,28 @@ where
 
         if let (Some(conn_info), Some(pool_builder)) = (conn_info_opt, pool_builder_opt) {
             let conn_info_string = format!("{:?}", conn_info);
+            let pool_config_string = format!("{:?}", pool_builder);
 
             match redis::Client::open(conn_info) {
                 Ok(client) => match pool_builder.build(client) {
                     Ok(pool) => {
-                        if let Err(_) = self.pool.set(pool) {
+                        if let Err(_pool) = self.pool.set(pool) {
                             return Err(Err::new(RedisDataSrcError::AlreadySetup));
                         } else {
                             return Ok(());
                         }
                     }
-                    Err(e_p) => Err(Err::with_source(RedisDataSrcError::FailToBuildPool, e_p)),
+                    Err(e_p) => Err(Err::with_source(
+                        RedisDataSrcError::FailToBuildPool {
+                            connection_info: conn_info_string,
+                            pool_config: pool_config_string,
+                        },
+                        e_p,
+                    )),
                 },
                 Err(e_c) => Err(Err::with_source(
                     RedisDataSrcError::FailToOpenClient {
                         connection_info: conn_info_string,
-                        pool_config: format!("{:?}", pool_builder),
                     },
                     e_c,
                 )),
@@ -657,12 +674,8 @@ mod test_redis {
                         assert_eq!(errors.len(), 1);
                         let err_redis = errors.get("redis").unwrap();
                         match err_redis.reason::<RedisDataSrcError>().unwrap() {
-                            RedisDataSrcError::FailToOpenClient {
-                                connection_info,
-                                pool_config,
-                            } => {
+                            RedisDataSrcError::FailToOpenClient { connection_info } => {
                                 assert_eq!(connection_info, "\"xxxxx\"");
-                                assert_eq!(pool_config, "Builder { max_size: 10, min_idle: None, test_on_check_out: true, max_lifetime: Some(1800s), idle_timeout: Some(600s), connection_timeout: 30s, error_handler: LoggingErrorHandler, event_handler: NopEventHandler, connection_customizer: NopConnectionCustomizer }");
                             }
                             _ => panic!(),
                         }

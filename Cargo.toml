@@ -13,6 +13,7 @@ keywords = ["sabi", "redis", "data", "access"]
 categories = ["database"]
 
 [dependencies]
+deadpool = { version = "0.12", optional = true }
 errs = "0.2"
 r2d2 = { version = "0.8", optional = true }
 redis = { version = "0.32" }
@@ -25,6 +26,8 @@ override_macro = "0.1"
 default = ["sabi_redis-standalone-sync"]
 
 sabi_redis-standalone-sync = ["dep:r2d2", "redis/r2d2"]
+
+sabi_redis-standalone-async = ["dep:deadpool", "redis/tokio-comp"]
 
 [package.metadata.docs.rs]
 all-features = true
