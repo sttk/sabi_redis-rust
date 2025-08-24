@@ -406,7 +406,6 @@ where
 
         if let (Some(conn_info), Some(pool_builder)) = (conn_info_opt, pool_builder_opt) {
             let conn_info_string = format!("{:?}", conn_info);
-            let pool_config_string = format!("{:?}", pool_builder);
 
             match redis::Client::open(conn_info) {
                 Ok(client) => match pool_builder.build(client) {
@@ -422,7 +421,7 @@ where
                 Err(e_c) => Err(Err::with_source(
                     RedisDataSrcError::FailToOpenClient {
                         connection_info: conn_info_string,
-                        pool_config: pool_config_string,
+                        pool_config: format!("{:?}", pool_builder),
                     },
                     e_c,
                 )),
@@ -624,7 +623,7 @@ mod test_redis {
         let mut data = DataHub::new();
         data.uses(
             "redis",
-            RedisDataSrc::with_pool_config("redis://127.0.0.1:6379/0", builder),
+            RedisDataSrc::with_pool_config("redis://127.0.0.1:6379/2", builder),
         );
         if let Err(err) = sabi::run!(sample_logic, data) {
             panic!("{:?}", err);
@@ -682,12 +681,12 @@ mod test_redis {
     #[test]
     fn test_txn_and_commit() {
         let mut data = DataHub::new();
-        data.uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/2"));
+        data.uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/3"));
         if let Err(err) = sabi::txn!(sample_logic_in_txn_and_commit, data) {
             panic!("{:?}", err);
         }
 
-        let client = redis::Client::open("redis://127.0.0.1:6379/2").unwrap();
+        let client = redis::Client::open("redis://127.0.0.1:6379/3").unwrap();
         let mut conn = client.get_connection().unwrap();
         let s: redis::RedisResult<Option<String>> = conn.get("sample_force_back");
         assert_eq!(s.unwrap().unwrap(), "Good Morning");
@@ -730,7 +729,7 @@ mod test_redis {
     #[test]
     fn test_txn_and_force_back() {
         let mut data = DataHub::new();
-        data.uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/3"));
+        data.uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/6"));
 
         if let Err(err) = sabi::txn!(sample_logic_in_txn_and_force_back, data) {
             assert_eq!(err.reason::<&str>().unwrap(), &"XXX");
@@ -738,7 +737,7 @@ mod test_redis {
             panic!();
         }
 
-        let client = redis::Client::open("redis://127.0.0.1:6379/3").unwrap();
+        let client = redis::Client::open("redis://127.0.0.1:6379/6").unwrap();
         let mut conn = client.get_connection().unwrap();
         let r: redis::RedisResult<Option<String>> = conn.get("sample_force_back");
         assert!(r.unwrap().is_none());
