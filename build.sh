@@ -47,7 +47,7 @@ bench() {
 }
 
 doc() {
-  cargo doc
+  cargo +nightly rustdoc --all-features -- --cfg docsrs
   errcheck $?
 }
 

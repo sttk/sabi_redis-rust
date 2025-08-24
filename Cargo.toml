@@ -25,3 +25,8 @@ override_macro = "0.1"
 default = ["sabi_redis-standalone-sync"]
 
 sabi_redis-standalone-sync = ["dep:r2d2", "redis/r2d2"]
+
+[package.metadata.docs.rs]
+all-features = true
+targets = ["x86_64-unknown-linux-gnu"]
+rustdoc-args = ["--cfg", "docsrs"]
