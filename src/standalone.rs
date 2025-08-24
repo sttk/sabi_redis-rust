@@ -22,7 +22,7 @@ pub enum RedisDataSrcError {
     AlreadySetup,
 
     /// Indicates a failure to open a connection from the `redis::Client` to the Redis server.
-    /// Contains the connection information string and connection pooling configurations string
+    /// Contains the connection information string and connection pooling configuration string
     /// that caused the failure.
     FailToOpenClient {
         /// The connection information string.
