@@ -1,3 +1,4 @@
+#[cfg(feature = "sabi_redis-standalone-sync")]
 #[cfg(test)]
 mod integration_tests_of_sabi_redis {
     use errs;

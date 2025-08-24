@@ -14,9 +14,14 @@ categories = ["database"]
 
 [dependencies]
 errs = "0.2"
-r2d2 = "0.8"
-redis = { version = "0.32", features = ["r2d2"] }
+r2d2 = { version = "0.8", optional = true }
+redis = { version = "0.32" }
 sabi-rust = "0.4"
 
 [dev-dependencies]
 override_macro = "0.1"
+
+[features]
+default = ["sabi_redis-standalone-sync"]
+
+sabi_redis-standalone-sync = ["dep:r2d2", "redis/r2d2"]
