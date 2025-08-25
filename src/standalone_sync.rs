@@ -253,7 +253,7 @@ impl DataConn for RedisDataConn {
     fn force_back(&mut self, _ag: &mut AsyncGroup) {
         match self.pool.get() {
             Ok(mut conn) => {
-                for f in self.force_back_vec.iter_mut() {
+                for f in self.force_back_vec.iter_mut().rev() {
                     let _ = f(&mut conn);
                 }
             }
@@ -497,11 +497,19 @@ mod test_redis {
             let data_conn = self.get_data_conn::<RedisDataConn>("redis")?;
             let mut conn = data_conn.get_connection()?;
 
+            let log_opt: Option<String> = conn.get("log").unwrap();
+            let log = log_opt.unwrap_or("".to_string());
+            let _: Option<()> = conn.set("log", log + "LOG1.").unwrap();
+
             if let Err(e) = conn.set::<&str, &str, ()>("sample_force_back", val) {
                 return Err(Err::with_source(SampleError::FailToSetValue, e));
             }
 
             data_conn.add_force_back(|conn| {
+                let log_opt: Option<String> = conn.get("log").unwrap();
+                let log = log_opt.unwrap_or("".to_string());
+                let _: Option<()> = conn.set("log", log + "LOG2.").unwrap();
+
                 let r: redis::RedisResult<()> = conn.del("sample_force_back");
                 match r {
                     Ok(()) => Ok(()),
@@ -509,11 +517,19 @@ mod test_redis {
                 }
             });
 
+            let log_opt: Option<String> = conn.get("log").unwrap();
+            let log = log_opt.unwrap_or("".to_string());
+            let _: Option<()> = conn.set("log", log + "LOG3.").unwrap();
+
             if let Err(e) = conn.set::<&str, &str, ()>("sample_force_back_2", val) {
                 return Err(Err::with_source(SampleError::FailToSetValue, e));
             }
 
             data_conn.add_force_back(|conn| {
+                let log_opt: Option<String> = conn.get("log").unwrap();
+                let log = log_opt.unwrap_or("".to_string());
+                let _: Option<()> = conn.set("log", log + "LOG4.").unwrap();
+
                 let r: redis::RedisResult<()> = conn.del("sample_force_back_2");
                 match r {
                     Ok(()) => Ok(()),
@@ -688,12 +704,18 @@ mod test_redis {
 
         let client = redis::Client::open("redis://127.0.0.1:6379/3").unwrap();
         let mut conn = client.get_connection().unwrap();
+
         let s: redis::RedisResult<Option<String>> = conn.get("sample_force_back");
-        assert_eq!(s.unwrap().unwrap(), "Good Morning");
-        let s: redis::RedisResult<Option<String>> = conn.get("sample_force_back_2");
+        let _: redis::RedisResult<()> = conn.del("sample_force_back");
         assert_eq!(s.unwrap().unwrap(), "Good Morning");
 
-        let _: redis::RedisResult<()> = conn.del("sample_force_back");
+        let s: redis::RedisResult<Option<String>> = conn.get("sample_force_back_2");
+        let _: redis::RedisResult<()> = conn.del("sample_force_back_2");
+        assert_eq!(s.unwrap().unwrap(), "Good Morning");
+
+        let log: redis::RedisResult<Option<String>> = conn.get("log");
+        let _: redis::RedisResult<()> = conn.del("log");
+        assert_eq!(log.unwrap().unwrap(), "LOG1.LOG3.");
     }
 
     #[test]
@@ -708,6 +730,7 @@ mod test_redis {
         let client = redis::Client::open("redis://127.0.0.1:6379/4").unwrap();
         let mut conn = client.get_connection().unwrap();
         let s: redis::RedisResult<Option<String>> = conn.get("sample_pre_commit");
+        let _: redis::RedisResult<()> = conn.del("sample_pre_commit");
         assert_eq!(s.unwrap().unwrap(), "Good Evening");
     }
 
@@ -723,6 +746,7 @@ mod test_redis {
         let client = redis::Client::open("redis://127.0.0.1:6379/5").unwrap();
         let mut conn = client.get_connection().unwrap();
         let s: redis::RedisResult<Option<String>> = conn.get("sample_post_commit");
+        let _: redis::RedisResult<()> = conn.del("sample_post_commit");
         assert_eq!(s.unwrap().unwrap(), "Good Night");
     }
 
@@ -739,9 +763,17 @@ mod test_redis {
 
         let client = redis::Client::open("redis://127.0.0.1:6379/6").unwrap();
         let mut conn = client.get_connection().unwrap();
+
         let r: redis::RedisResult<Option<String>> = conn.get("sample_force_back");
+        let _: redis::RedisResult<()> = conn.del("sample_force_back");
         assert!(r.unwrap().is_none());
+
         let r: redis::RedisResult<Option<String>> = conn.get("sample_force_back_2");
+        let _: redis::RedisResult<()> = conn.del("sample_force_back_2");
         assert!(r.unwrap().is_none());
+
+        let log: redis::RedisResult<Option<String>> = conn.get("log");
+        let _: redis::RedisResult<()> = conn.del("log");
+        assert_eq!(log.unwrap().unwrap(), "LOG1.LOG3.LOG4.LOG2.");
     }
 }
