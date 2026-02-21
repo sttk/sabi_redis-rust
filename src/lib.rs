@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Takayuki Sato. All Rights Reserved.
+// Copyright (C) 2025-2026 Takayuki Sato. All Rights Reserved.
 // This program is free software under MIT License.
 // See the file LICENSE in this distribution for more details.
 
@@ -15,7 +15,7 @@
 //! `RedisDataSrc` and `RedisDataConn` are designed for a standalone Redis server and provide
 //! synchronous connections for processing Redis commands.
 //!
-//! This type requires the `"sabi_redis-standalone-sync"` feature to be enabled.
+//! This type requires the `"standalone-sync"` feature to be enabled.
 //!
 //! #### Example
 //!
@@ -24,7 +24,7 @@
 //! use sabi;
 //! use sabi_redis::RedisDataSrc;
 //!
-//! fn main() -> Result<(), errs::Err> {
+//! fn main() -> errs::Result<()> {
 //!     sabi::uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/10"));
 //!
 //!     let _auto_shutdown = sabi::setup()?;
@@ -46,7 +46,7 @@
 //!
 //! The `DataConn` derived struct provided by this crate is equipped with the `add_force_back`
 //! method. You can use this method to store functions in the `DataConn` that will be executed
-//! during the rollback process within `sabi::txn!`.
+//! during the rollback process within `sabi::DataHub::txn`.
 //!
 //! This is useful for things like deleting newly added data or reverting data that is unlikely to
 //! have concurrent updates, such as session data. For data that might have concurrent updates,
@@ -61,7 +61,7 @@
 //! use sabi_redis::RedisDataConn;
 //!
 //! trait RedisSampleDataAcc: sabi::DataAcc {
-//!     fn data_access_method_with_add_force_back(&mut self, value: i64) -> Result<(), errs::Err> {
+//!     fn data_access_method_with_add_force_back(&mut self, value: i64) -> errs::Result<()> {
 //!         let data_conn = self.get_data_conn::<RedisDataConn>("redis")?;
 //!         let mut redis_conn = data_conn.get_connection()?;
 //!
@@ -84,7 +84,7 @@
 //!
 //! The `DataConn` derived struct provided by this crate is equipped with the `add_pre_commit`
 //! method. You can use this method to store functions in the `DataConn` that will be executed
-//! right before the commit process within `sabi::txn!`.
+//! right before the commit process within `sabi::DataHub::txn`.
 //!
 //! By performing Redis updates after all other database updates, you can avoid the need for a
 //! rollback if an error occurs with the other databases. This is a good option if you can ensure
@@ -99,7 +99,7 @@
 //! use sabi_redis::RedisDataConn;
 //!
 //! trait RedisSampleDataAcc: sabi::DataAcc {
-//!     fn data_access_method_with_add_pre_commit(&mut self, value: i64) -> Result<(), errs::Err> {
+//!     fn data_access_method_with_add_pre_commit(&mut self, value: i64) -> errs::Result<()> {
 //!         let data_conn = self.get_data_conn::<RedisDataConn>("redis")?;
 //!         data_conn.add_pre_commit(move |redis_conn| {
 //!             if let Err(e) = redis_conn.set("value", value) {
@@ -116,7 +116,7 @@
 //!
 //! The `DataConn` derived struct provided by this crate is equipped with the `add_post_commit`
 //! method. You can use this method to store functions in the `DataConn` that will be executed
-//! after the commit process within `sabi::txn!`.
+//! after the commit process within `sabi::DataHub::txn`.
 //!
 //! Since it's executed after the commit of the updates to other databases is complete, there's no
 //! need to consider rolling back Redis updates even if an error occurs with the other database
@@ -135,7 +135,7 @@
 //! use sabi_redis::RedisDataConn;
 //!
 //! trait RedisSampleDataAcc: sabi::DataAcc {
-//!     fn data_access_method_with_add_pre_commit(&mut self, value: i64) -> Result<(), errs::Err> {
+//!     fn data_access_method_with_add_pre_commit(&mut self, value: i64) -> errs::Result<()> {
 //!         let data_conn = self.get_data_conn::<RedisDataConn>("redis")?;
 //!         data_conn.add_post_commit(move |redis_conn| {
 //!             if let Err(e) = redis_conn.set("value", value) {
@@ -150,9 +150,9 @@
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-#[cfg(feature = "sabi_redis-standalone-sync")]
+#[cfg(feature = "standalone-sync")]
 mod standalone_sync;
 
-#[cfg(feature = "sabi_redis-standalone-sync")]
-#[cfg_attr(docsrs, doc(cfg(feature = "sabi_redis-standalone-sync")))]
+#[cfg(feature = "standalone-sync")]
+#[cfg_attr(docsrs, doc(cfg(feature = "standalone-sync")))]
 pub use standalone_sync::{RedisDataConn, RedisDataSrc, RedisDataSrcError};
