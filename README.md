@@ -47,48 +47,45 @@ fn main() -> Result<(), errs::Err> {
     my_app()
 }
 
-fn my_app() -> Result<(), errs::Err> {
+fn my_app() -> errs::Result<()> {
     let mut data = sabi::DataHub::new();
     sabi::txn!(my_logic, data)
 }
 
-fn my_logic(data: &mut impl MyData) -> Result<(), errs::Err> {
+fn my_logic(data: &mut impl MyData) -> errs::Result<()> {
     let greeting = data.get_greeting()?;
     data.say_greeting(&greeting)
 }
 
 #[overridable]
 trait MyData {
-    fn get_greeting(&mut self) -> Result<String, errs::Err>;
-    fn say_greeting(&mut self, greeting: &str) -> Result<(), errs::Err>;
+    fn get_greeting(&mut self) -> errs::Result<String>;
+    fn say_greeting(&mut self, greeting: &str) -> errs::Result<()>;
 }
 
 #[overridable]
 trait GettingDataAcc: sabi::DataAcc {
-    fn get_greeting(&mut self) -> Result<String, errs::Err> {
+    fn get_greeting(&mut self) -> errs::Result<String> {
         Ok("Hello!".to_string())
     }
 }
 
 #[overridable]
 trait RedisSayingDataAcc: sabi::DataAcc {
-    fn say_greeting(&mut self, greeting: &str) -> Result<(), errs::Err> {
+    fn say_greeting(&mut self, greeting: &str) -> errs::Result<()> {
         // Retrieve a `RedisDataConn` instance by the key "redis".
         let data_conn = self.get_data_conn::<RedisDataConn>("redis")?;
 
         // Get a Redis connection to execute Redis synchronous commands.
         let mut redis_conn = data_conn.get_connection()?;
 
-        if let Err(e) = redis_conn.set("greeting", greeting) {
-            return Err(errs::Err::with_source("fail to set greeting", e));
-        }
+        redis_conn.set("greeting", greeting)
+            .map_err(|e| errs::Err::with_source("fail to set greeting", e))?;
 
         // Register a force back process to revert updates to Redis when an error occurs.
         data_conn.add_force_back(|redis_conn| {
-            let result = redis_conn.del("greeting");
-            if let Err(e) = result {
-                return Err(errs::Err::with_source("fail to force back", e));
-            }
+            redis_conn.del("greeting")
+                .map_err(|e| errs::Err::with_source("fail to force back", e))?;
             Ok(())
         });
 
@@ -106,31 +103,31 @@ impl MyData for sabi::DataHub {}
 
 ## Supported Rust versions
 
-This crate supports Rust 1.85.1 or later.
+This crate supports Rust 1.87.0 or later.
 
 ```sh
 % ./build.sh msrv
   [Meta]   cargo-msrv 0.18.4
 
-Compatibility Check #1: Rust 1.73.0
+Compatibility Check #1: Rust 1.75.0
   [FAIL]   Is incompatible
 
-Compatibility Check #2: Rust 1.81.0
+Compatibility Check #2: Rust 1.84.1
   [FAIL]   Is incompatible
 
-Compatibility Check #3: Rust 1.85.1
+Compatibility Check #3: Rust 1.89.0
   [OK]     Is compatible
 
-Compatibility Check #4: Rust 1.83.0
+Compatibility Check #4: Rust 1.86.0
   [FAIL]   Is incompatible
 
-Compatibility Check #5: Rust 1.84.1
-  [FAIL]   Is incompatible
+Compatibility Check #5: Rust 1.87.0
+  [OK]     Is compatible
 
 Result:
-   Considered (min … max):   Rust 1.56.1 … Rust 1.89.0
+   Considered (min … max):   Rust 1.56.1 … Rust 1.93.1
    Search method:            bisect
-   MSRV:                     1.85.1
+   MSRV:                     1.87.0
    Target:                   x86_64-apple-darwin
 ```
 

@@ -3,8 +3,6 @@
 // See the file LICENSE in this distribution for more details.
 
 use errs::Err;
-use r2d2;
-use redis;
 use sabi::{AsyncGroup, DataConn, DataSrc};
 
 use std::cell;
@@ -57,7 +55,7 @@ pub enum RedisDataSrcError {
 /// use sabi;
 /// use sabi_redis::{RedisDataSrc, RedisDataConn};
 ///
-/// fn main() -> Result<(), errs::Err> {
+/// fn main() -> errs::Result<()> {
 ///     // Register a `RedisDataSrc` instance to connect to a Redis server with the key "redis".
 ///     sabi::uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/0"));
 ///
@@ -67,48 +65,45 @@ pub enum RedisDataSrcError {
 ///     my_app()
 /// }
 ///
-/// fn my_app() -> Result<(), errs::Err> {
+/// fn my_app() -> errs::Result<()> {
 ///     let mut data = sabi::DataHub::new();
-///     sabi::txn!(my_logic, data)
+///     data.txn(my_logic)
 /// }
 ///
-/// fn my_logic(data: &mut impl MyData) -> Result<(), errs::Err> {
+/// fn my_logic(data: &mut impl MyData) -> errs::Result<()> {
 ///     let greeting = data.get_greeting()?;
 ///     data.say_greeting(&greeting)
 /// }
 ///
 /// #[overridable]
 /// trait MyData {
-///     fn get_greeting(&mut self) -> Result<String, errs::Err>;
-///     fn say_greeting(&mut self, greeting: &str) -> Result<(), errs::Err>;
+///     fn get_greeting(&mut self) -> errs::Result<String>;
+///     fn say_greeting(&mut self, greeting: &str) -> errs::Result<()>;
 /// }
 ///
 /// #[overridable]
 /// trait GettingDataAcc: sabi::DataAcc {
-///     fn get_greeting(&mut self) -> Result<String, errs::Err> {
+///     fn get_greeting(&mut self) -> errs::Result<String> {
 ///         Ok("Hello!".to_string())
 ///     }
 /// }
 ///
 /// #[overridable]
 /// trait RedisSayingDataAcc: sabi::DataAcc {
-///     fn say_greeting(&mut self, greeting: &str) -> Result<(), errs::Err> {
+///     fn say_greeting(&mut self, greeting: &str) -> errs::Result<()> {
 ///         // Retrieve a `RedisDataConn` instance by the key "redis".
 ///         let data_conn = self.get_data_conn::<RedisDataConn>("redis")?;
 ///
 ///         // Get a Redis connection to execute Redis synchronous commands.
 ///         let mut redis_conn = data_conn.get_connection()?;
 ///
-///         if let Err(e) = redis_conn.set("greeting", greeting) {
-///             return Err(errs::Err::with_source("fail to set greeting", e));
-///         }
+///         redis_conn.set("greeting", greeting)
+///             .map_err(|e| errs::Err::with_source("fail to set greeting", e))?;
 ///
 ///         // Register a force back process to revert updates to Redis when an error occurs.
 ///         data_conn.add_force_back(|redis_conn| {
-///             let result = redis_conn.del("greeting");
-///             if let Err(e) = result {
-///                 return Err(errs::Err::with_source("fail to force back", e));
-///             }
+///             redis_conn.del("greeting")
+///                 .map_err(|e| errs::Err::with_source("fail to force back", e))?;
 ///             Ok(())
 ///         });
 ///
@@ -122,6 +117,7 @@ pub enum RedisDataSrcError {
 /// #[override_with(GettingDataAcc, RedisSayingDataAcc)]
 /// impl MyData for sabi::DataHub {}
 /// ```
+#[allow(clippy::type_complexity)]
 pub struct RedisDataConn {
     pool: r2d2::Pool<redis::Client>,
     pre_commit_vec: Vec<Box<dyn FnMut(&mut redis::Connection) -> Result<(), Err>>>,
@@ -297,7 +293,7 @@ impl DataConn for RedisDataConn {
 ///
 /// fn my_app() -> Result<(), errs::Err> {
 ///     let mut data = sabi::DataHub::new();
-///     sabi::txn!(my_logic, data)
+///     data.txn(my_logic)
 /// }
 ///
 /// fn my_logic(data: &mut impl MyData) -> Result<(), errs::Err> {
@@ -327,16 +323,13 @@ impl DataConn for RedisDataConn {
 ///         // Get a Redis connection to execute Redis synchronous commands.
 ///         let mut redis_conn = data_conn.get_connection()?;
 ///
-///         if let Err(e) = redis_conn.set("greeting", greeting) {
-///             return Err(errs::Err::with_source("fail to set greeting", e));
-///         }
+///         redis_conn.set("greeting", greeting)
+///             .map_err(|e| errs::Err::with_source("fail to set greeting", e))?;
 ///
 ///         // Register a force back process to revert updates to Redis when an error occurs.
 ///         data_conn.add_force_back(|redis_conn| {
-///             let result = redis_conn.del("greeting");
-///             if let Err(e) = result {
-///                 return Err(errs::Err::with_source("fail to force back", e));
-///             }
+///             redis_conn.del("greeting")
+///                 .map_err(|e| errs::Err::with_source("fail to force back", e))?;
 ///             Ok(())
 ///         });
 ///
@@ -410,24 +403,24 @@ where
             match redis::Client::open(conn_info) {
                 Ok(client) => match pool_builder.build(client) {
                     Ok(pool) => {
-                        if let Err(_) = self.pool.set(pool) {
-                            return Err(Err::new(RedisDataSrcError::AlreadySetup));
+                        if self.pool.set(pool).is_err() {
+                            Err(Err::new(RedisDataSrcError::AlreadySetup))
                         } else {
-                            return Ok(());
+                            Ok(())
                         }
                     }
-                    Err(e_p) => Err(Err::with_source(RedisDataSrcError::FailToBuildPool, e_p)),
+                    Err(e) => Err(Err::with_source(RedisDataSrcError::FailToBuildPool, e)),
                 },
-                Err(e_c) => Err(Err::with_source(
+                Err(e) => Err(Err::with_source(
                     RedisDataSrcError::FailToOpenClient {
                         connection_info: conn_info_string,
                         pool_config: format!("{:?}", pool_builder),
                     },
-                    e_c,
+                    e,
                 )),
             }
         } else {
-            return Err(Err::new(RedisDataSrcError::AlreadySetup));
+            Err(Err::new(RedisDataSrcError::AlreadySetup))
         }
     }
 
@@ -443,9 +436,9 @@ where
     /// `NotSetupYet` error if the data source has not been set up.
     fn create_data_conn(&mut self) -> Result<Box<RedisDataConn>, Err> {
         if let Some(pool) = self.pool.get() {
-            return Ok(Box::new(RedisDataConn::new(pool.clone())));
+            Ok(Box::new(RedisDataConn::new(pool.clone())))
         } else {
-            return Err(Err::new(RedisDataSrcError::NotSetupYet));
+            Err(Err::new(RedisDataSrcError::NotSetupYet))
         }
     }
 }
@@ -605,25 +598,18 @@ mod test_redis {
     fn ok_by_redis_uri() {
         let mut data = DataHub::new();
         data.uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/0"));
-        if let Err(err) = sabi::run!(sample_logic, data) {
+        if let Err(err) = data.run(sample_logic) {
             panic!("{:?}", err);
         }
     }
 
     #[test]
     fn ok_by_connection_info() {
-        let ci = redis::ConnectionInfo {
-            addr: redis::ConnectionAddr::Tcp(String::from("127.0.0.1"), 6379),
-            redis: redis::RedisConnectionInfo {
-                db: 1,
-                username: None,
-                password: None,
-                protocol: redis::ProtocolVersion::RESP3,
-            },
-        };
+        let ci: redis::ConnectionInfo = "redis://127.0.0.1:6379/1".parse().unwrap();
+
         let mut data = DataHub::new();
         data.uses("redis", RedisDataSrc::new(ci));
-        if let Err(err) = sabi::run!(sample_logic, data) {
+        if let Err(err) = data.run(sample_logic) {
             panic!("{:?}", err);
         }
     }
@@ -641,31 +627,45 @@ mod test_redis {
             "redis",
             RedisDataSrc::with_pool_config("redis://127.0.0.1:6379/2", builder),
         );
-        if let Err(err) = sabi::run!(sample_logic, data) {
+        if let Err(err) = data.run(sample_logic) {
             panic!("{:?}", err);
         }
     }
+
+    use std::error::Error;
 
     #[test]
     fn fail_to_setup() {
         let mut data = DataHub::new();
         data.uses("redis", RedisDataSrc::new("xxxxx"));
-        if let Err(err) = sabi::run!(sample_logic, data) {
+        if let Err(err) = data.run(sample_logic) {
             if let Ok(r) = err.reason::<sabi::DataHubError>() {
                 match r {
                     sabi::DataHubError::FailToSetupLocalDataSrcs { errors } => {
                         assert_eq!(errors.len(), 1);
-                        let err_redis = errors.get("redis").unwrap();
-                        match err_redis.reason::<RedisDataSrcError>().unwrap() {
-                            RedisDataSrcError::FailToOpenClient {
-                                connection_info,
-                                pool_config,
-                            } => {
-                                assert_eq!(connection_info, "\"xxxxx\"");
-                                assert_eq!(pool_config, "Builder { max_size: 10, min_idle: None, test_on_check_out: true, max_lifetime: Some(1800s), idle_timeout: Some(600s), connection_timeout: 30s, error_handler: LoggingErrorHandler, event_handler: NopEventHandler, connection_customizer: NopConnectionCustomizer }");
+                        assert_eq!(errors[0].0.as_ref(), "redis");
+                        if let Ok(r) = errors[0].1.reason::<RedisDataSrcError>() {
+                            match r {
+                                RedisDataSrcError::FailToOpenClient {
+                                    connection_info,
+                                    pool_config,
+                                } => {
+                                    assert_eq!(connection_info, "\"xxxxx\"");
+                                    assert_eq!(pool_config, "Builder { max_size: 10, min_idle: None, test_on_check_out: true, max_lifetime: Some(1800s), idle_timeout: Some(600s), connection_timeout: 30s, error_handler: LoggingErrorHandler, event_handler: NopEventHandler, connection_customizer: NopConnectionCustomizer }");
+                                }
+                                _ => panic!(),
                             }
-                            _ => panic!(),
                         }
+                        let e = errors[0]
+                            .1
+                            .source()
+                            .unwrap()
+                            .downcast_ref::<redis::RedisError>()
+                            .unwrap();
+                        assert_eq!(e.kind(), redis::ErrorKind::InvalidClientConfig);
+                        assert!(e.detail().is_none());
+                        assert!(e.code().is_none());
+                        assert_eq!(e.category(), "invalid client config");
                     }
                     _ => panic!("{:?}", err),
                 }
@@ -698,7 +698,7 @@ mod test_redis {
     fn test_txn_and_commit() {
         let mut data = DataHub::new();
         data.uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/3"));
-        if let Err(err) = sabi::txn!(sample_logic_in_txn_and_commit, data) {
+        if let Err(err) = data.txn(sample_logic_in_txn_and_commit) {
             panic!("{:?}", err);
         }
 
@@ -723,7 +723,7 @@ mod test_redis {
         let mut data = DataHub::new();
         data.uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/4"));
 
-        if let Err(err) = sabi::txn!(sample_logic_in_txn_and_pre_commit, data) {
+        if let Err(err) = data.txn(sample_logic_in_txn_and_pre_commit) {
             panic!("{:?}", err);
         }
 
@@ -739,7 +739,7 @@ mod test_redis {
         let mut data = DataHub::new();
         data.uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/5"));
 
-        if let Err(err) = sabi::txn!(sample_logic_in_txn_and_post_commit, data) {
+        if let Err(err) = data.txn(sample_logic_in_txn_and_post_commit) {
             panic!("{:?}", err);
         }
 
@@ -755,7 +755,7 @@ mod test_redis {
         let mut data = DataHub::new();
         data.uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/6"));
 
-        if let Err(err) = sabi::txn!(sample_logic_in_txn_and_force_back, data) {
+        if let Err(err) = data.txn(sample_logic_in_txn_and_force_back) {
             assert_eq!(err.reason::<&str>().unwrap(), &"XXX");
         } else {
             panic!();

@@ -13,18 +13,18 @@ keywords = ["sabi", "redis", "data", "access"]
 categories = ["database"]
 
 [dependencies]
-errs = "0.2"
+errs = "0.8"
 r2d2 = { version = "0.8", optional = true }
-redis = { version = "0.32" }
-sabi-rust = "0.4"
+redis = { version = "1" }
+sabi-rust = "0.7"
 
 [dev-dependencies]
 override_macro = "0.1"
 
 [features]
-default = ["sabi_redis-standalone-sync"]
+default = ["standalone-sync"]
 
-sabi_redis-standalone-sync = ["dep:r2d2", "redis/r2d2"]
+standalone-sync = ["dep:r2d2", "redis/r2d2"]
 
 [package.metadata.docs.rs]
 all-features = true
