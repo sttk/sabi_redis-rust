@@ -1,8 +1,128 @@
-# https://hub.docker.com/r/redislabs/redis/tags
-
 services:
-  redis:
-    container_name: redis_local
+  .sentinel-base: &sentinel-base
+    image: redis:8
+    depends_on:
+      - redis_sentinel_master
+    volumes:
+      - ./sentinel/sentinel.conf:/tmp/sentinel.conf.ro
+    command: >
+      sh -c "mkdir -p /etc/redis &&
+             if [ ! -f /etc/redis/sentinel.conf ]; then
+               cp /tmp/sentinel.conf.ro /etc/redis/sentinel.conf
+             fi
+             chown redis:redis /etc/redis/sentinel.conf
+             exec redis-server /etc/redis/sentinel.conf --sentinel"
+
+  .cluster-base: &cluster-base
+    image: redis:8
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - ./cluster/redis.conf:/usr/local/etc/redis/redis.conf
+
+  # -- standalone configuration
+  redis_standalone:
+    container_name: redis_standalone
     image: redis:8
     ports:
       - "6379:6379"
+
+  # -- sentinel configuration
+  redis_sentinel_master:
+    container_name: redis_sentinel_master
+    image: redis:8
+    ports:
+      - "6479:6479"
+    volumes:
+      - ./sentinel/redis-master.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+
+  redis_sentinel_slave1:
+    container_name: redis_sentinel_slave1
+    image: redis:8
+    depends_on:
+      - redis_sentinel_master
+    volumes:
+      - ./sentinel/redis-slave.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+
+  redis_sentinel_slave2:
+    container_name: redis_sentinel_slave2
+    image: redis:8
+    depends_on:
+      - redis_sentinel_master
+    volumes:
+      - ./sentinel/redis-slave.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+
+  redis_sentinel_sentinel1:
+    <<: *sentinel-base
+    container_name: redis_sentinel_sentinel1
+
+  redis_sentinel_sentinel2:
+    <<: *sentinel-base
+    container_name: redis_sentinel_sentinel2
+
+  redis_sentinel_sentinel3:
+    <<: *sentinel-base
+    container_name: redis_sentinel_sentinel3
+
+  # -- cluster configuration
+  redis_cluster_1:
+    <<: *cluster-base
+    container_name: redis_cluster_1
+    networks:
+      redis-cluster-net:
+        ipv4_address: 172.20.0.11
+
+  redis_cluster_2:
+    <<: *cluster-base
+    container_name: redis_cluster_2
+    networks: { redis-cluster-net: { ipv4_address: 172.20.0.12 } }
+
+  redis_cluster_3:
+    <<: *cluster-base
+    container_name: redis_cluster_3
+    networks: { redis-cluster-net: { ipv4_address: 172.20.0.13 } }
+
+  redis_cluster_4:
+    <<: *cluster-base
+    container_name: redis_cluster_4
+    networks: { redis-cluster-net: { ipv4_address: 172.20.0.14 } }
+
+  redis_cluster_5:
+    <<: *cluster-base
+    container_name: redis_cluster_5
+    networks: { redis-cluster-net: { ipv4_address: 172.20.0.15 } }
+
+  redis_cluster_6:
+    <<: *cluster-base
+    container_name: redis_cluster_6
+    networks: { redis-cluster-net: { ipv4_address: 172.20.0.16 } }
+
+  redis-cluster-creator:
+    image: redis:8
+    container_name: redis-cluster-creator
+    depends_on:
+      - redis_cluster_1
+      - redis_cluster_2
+      - redis_cluster_3
+      - redis_cluster_4
+      - redis_cluster_5
+      - redis_cluster_6
+    networks:
+      redis-cluster-net:
+    entrypoint: >
+      sh -c "sleep 5 &&
+      echo 'yes' | redis-cli --cluster create
+      172.20.0.11:6579 172.20.0.12:6579 172.20.0.13:6579
+      172.20.0.14:6579 172.20.0.15:6579 172.20.0.16:6579
+      --cluster-replicas 1"
+
+networks:
+  default:
+    name: redis-sentinel-network
+  redis-cluster-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
