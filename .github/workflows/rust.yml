@@ -14,7 +14,7 @@ jobs:
         rustver: ['1.85.1', stable]
         os: [ubuntu-latest]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.rustver }}
@@ -30,7 +30,7 @@ jobs:
         rustver: [stable]
         os: [ubuntu-latest]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.rustver }}
