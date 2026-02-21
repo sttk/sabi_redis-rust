@@ -17,25 +17,35 @@ format() {
   errcheck $?
 }
 
+lint() {
+  cargo clippy --all-features
+  errcheck $?
+}
+
 compile() {
-  cargo build
+  cargo build --all-features
   errcheck $?
 }
 
 test() {
+  #echo "### features: default"
   cargo test -- --show-output
   errcheck $?
+
+  #echo "### features: full"
+  #cargo test --all-features -- --show-output
+  #errcheck $?
 }
 
 unit() {
-  cargo test -- --show-output $1
+  cargo test --all-features -- --show-output $1
   errcheck $?
 }
 
 cover() {
   cargo llvm-cov clean
   errcheck $?
-  cargo llvm-cov --html --quiet
+  cargo llvm-cov --all-features --html --quiet
   errcheck $?
   cargo llvm-cov report
   errcheck $?
@@ -52,7 +62,7 @@ doc() {
 }
 
 msrv() {
-  cargo msrv find --ignore-lockfile --no-check-feedback
+  cargo msrv find --all-features --ignore-lockfile --no-check-feedback
   errcheck $?
 }
 
@@ -61,6 +71,7 @@ if [[ "$#" == "0" ]]; then
   format
   compile
   test
+  lint
   doc
   cover
 
@@ -81,6 +92,9 @@ else
       ;;
     test)
       test
+      ;;
+    lint)
+      lint
       ;;
     doc)
       doc
