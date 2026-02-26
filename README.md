@@ -124,14 +124,15 @@ async fn main() -> Result<(), errs::Err> {
     sabi::tokio::uses("redis", RedisAsyncDataSrc::new("redis://127.0.0.1:6379/0"));
 
     // In this setup process, the registered `RedisAsyncDataSrc` instance connects to a Redis server.
-    let _auto_shutdown = sabi::tokio::setup().await?;
+    let _auto_shutdown = sabi::tokio::setup_async().await?;
 
     my_app().await
 }
 
 async fn my_app() -> errs::Result<()> {
     let mut data = sabi::tokio::DataHub::new();
-    sabi::tokio::txn!(my_logic, data).await
+    data.txn_async(sabi::tokio::logic!(my_logic)).await?;
+    Ok(())
 }
 
 async fn my_logic(data: &mut impl MyData) -> errs::Result<()> {
