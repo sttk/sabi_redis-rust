@@ -13,18 +13,22 @@ keywords = ["sabi", "redis", "data", "access"]
 categories = ["database"]
 
 [dependencies]
+deadpool-redis = { version = "0.23", optional = true }
 errs = "0.8"
 r2d2 = { version = "0.8", optional = true }
 redis = { version = "1" }
 sabi-rust = "0.7"
+tokio = { version = "1", optional = true }
 
 [dev-dependencies]
 override_macro = "0.1"
 
 [features]
 default = ["standalone-sync"]
-
 standalone-sync = ["dep:r2d2", "redis/r2d2"]
+standalone-async = ["dep:deadpool-redis", "redis/tokio-comp", "sabi-rust/tokio", "dep:tokio", "tokio/full"]
+standalone-full = ["standalone-sync", "standalone-async"]
+full = ["standalone-full"]
 
 [package.metadata.docs.rs]
 all-features = true

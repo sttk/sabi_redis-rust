@@ -22,12 +22,40 @@
 //! ```rust
 //! use errs;
 //! use sabi;
+//! #[cfg(feature = "standalone-sync")]
 //! use sabi_redis::RedisDataSrc;
 //!
 //! fn main() -> errs::Result<()> {
+//!     #[cfg(feature = "standalone-sync")]
 //!     sabi::uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/10"));
 //!
+//!     #[cfg(feature = "standalone-sync")]
 //!     let _auto_shutdown = sabi::setup()?;
+//!
+//!     // ...
+//!     Ok(())
+//! }
+//! ```
+//!
+//! ### Standalone configuration and asynchronous commands
+//!
+//! `RedisAsyncDataSrc` and `RedisAsyncDataConn` are designed for a standalone Redis server and
+//! provide asynchronous connections for processing Redis commands within a Tokio runtime.
+//!
+//! This type requires the `"standalone-async"` feature to be enabled.
+//!
+//! #### Example
+//!
+//! ```ignore
+//! use errs;
+//! use crate::RedisAsyncDataSrc;
+//! use tokio;
+//!
+//! #[tokio::main]
+//! async fn main() -> errs::Result<()> {
+//!     sabi::tokio::uses("redis", RedisAsyncDataSrc::new("redis://127.0.0.1:6379/10"));
+//!
+//!     let _auto_shutdown = sabi_tokio::setup_async().await?;
 //!
 //!     // ...
 //!     Ok(())
@@ -58,8 +86,10 @@
 //! use errs;
 //! use redis::TypedCommands;
 //! use sabi;
+//! #[cfg(feature = "standalone-sync")]
 //! use sabi_redis::RedisDataConn;
 //!
+//! #[cfg(feature = "standalone-sync")]
 //! trait RedisSampleDataAcc: sabi::DataAcc {
 //!     fn data_access_method_with_add_force_back(&mut self, value: i64) -> errs::Result<()> {
 //!         let data_conn = self.get_data_conn::<RedisDataConn>("redis")?;
@@ -96,8 +126,10 @@
 //! use errs;
 //! use redis::TypedCommands;
 //! use sabi;
+//! #[cfg(feature = "standalone-sync")]
 //! use sabi_redis::RedisDataConn;
 //!
+//! #[cfg(feature = "standalone-sync")]
 //! trait RedisSampleDataAcc: sabi::DataAcc {
 //!     fn data_access_method_with_add_pre_commit(&mut self, value: i64) -> errs::Result<()> {
 //!         let data_conn = self.get_data_conn::<RedisDataConn>("redis")?;
@@ -132,8 +164,10 @@
 //! use errs;
 //! use redis::TypedCommands;
 //! use sabi;
+//! #[cfg(feature = "standalone-sync")]
 //! use sabi_redis::RedisDataConn;
 //!
+//! #[cfg(feature = "standalone-sync")]
 //! trait RedisSampleDataAcc: sabi::DataAcc {
 //!     fn data_access_method_with_add_pre_commit(&mut self, value: i64) -> errs::Result<()> {
 //!         let data_conn = self.get_data_conn::<RedisDataConn>("redis")?;
@@ -156,3 +190,10 @@ mod standalone_sync;
 #[cfg(feature = "standalone-sync")]
 #[cfg_attr(docsrs, doc(cfg(feature = "standalone-sync")))]
 pub use standalone_sync::{RedisDataConn, RedisDataSrc, RedisDataSrcError};
+
+#[cfg(feature = "standalone-async")]
+mod standalone_async;
+
+#[cfg(feature = "standalone-async")]
+#[cfg_attr(docsrs, doc(cfg(feature = "standalone-async")))]
+pub use standalone_async::{RedisAsyncDataConn, RedisAsyncDataSrc, RedisAsyncDataSrcError};
