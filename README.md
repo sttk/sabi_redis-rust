@@ -7,7 +7,8 @@ within the sabi framework. It includes `DataSrc` and `DataConn` derived classes 
 your development process more efficient
 
 `RedisDataSrc` and `RedisDataConn` are designed for a standalone Redis server and provide
-synchronous connections for processing Redis commands.
+synchronous connections for processing Redis commands. Additionally, `RedisAsyncDataSrc` and
+`RedisAsyncDataConn` are available for asynchronous command processing.
 
 Unlike relational databases, Redis does not support data rollbacks. This can lead to data
 inconsistency if a transaction involving both Redis and another database fails mid-process.
@@ -20,12 +21,16 @@ In Cargo.toml, write this crate as a dependency:
 
 ```toml
 [dependencies]
-sabi_redis = "0.1.0"
+sabi_redis = "0.1.0" # `standalone-sync` feature is enabled by default.
+
+# If you want to use the `standalone-async` feature (without `standalone-sync`):
+# sabi_redis = { version = "0.1.0", default-features = false, features = ["standalone-async"] }
 ```
 
 ## Usage
 
 ### For Standalone Server And Synchronous Commands
+> The `standalone-sync` feature is required for this functionality, and it is enabled by default.
 
 Here is an example of how to use `RedisDataSrc` and `RedisDataConn` to connect to Redis and
 execute a simple command.
@@ -98,6 +103,85 @@ impl RedisSayingDataAcc for sabi::DataHub {}
 
 #[override_with(GettingDataAcc, RedisSayingDataAcc)]
 impl MyData for sabi::DataHub {}
+```
+
+### For Standalone Server And Asynchronous Commands
+> The `standalone-async` feature is required for this functionality.
+
+Here is an example of how to use `RedisAsyncDataSrc` and `RedisAsyncDataConn` to connect to Redis and
+execute a simple asynchronous command.
+
+```rust
+use errs;
+use override_macro::{overridable, override_with};
+use redis::AsyncCommands;
+use sabi;
+use sabi_redis::{RedisAsyncDataSrc, RedisAsyncDataConn};
+
+#[tokio::main]
+async fn main() -> Result<(), errs::Err> {
+    // Register a `RedisAsyncDataSrc` instance to connect to a Redis server with the key "redis".
+    sabi::tokio::uses("redis", RedisAsyncDataSrc::new("redis://127.0.0.1:6379/0"));
+
+    // In this setup process, the registered `RedisAsyncDataSrc` instance connects to a Redis server.
+    let _auto_shutdown = sabi::tokio::setup().await?;
+
+    my_app().await
+}
+
+async fn my_app() -> errs::Result<()> {
+    let mut data = sabi::tokio::DataHub::new();
+    sabi::tokio::txn!(my_logic, data).await
+}
+
+async fn my_logic(data: &mut impl MyData) -> errs::Result<()> {
+    let greeting = data.get_greeting_async().await?;
+    data.say_greeting_async(&greeting).await
+}
+
+#[overridable]
+trait MyData {
+    async fn get_greeting_async(&mut self) -> errs::Result<String>;
+    async fn say_greeting_async(&mut self, greeting: &str) -> errs::Result<()>;
+}
+
+#[overridable]
+trait GettingDataAcc: sabi::tokio::DataAcc {
+    async fn get_greeting_async(&mut self) -> errs::Result<String> {
+        Ok("Hello!".to_string())
+    }
+}
+
+#[overridable]
+trait RedisSayingDataAcc: sabi::tokio::DataAcc {
+    async fn say_greeting_async(&mut self, greeting: &str) -> errs::Result<()> {
+        // Retrieve a `RedisAsyncDataConn` instance by the key "redis".
+        let data_conn = self.get_data_conn_async::<RedisAsyncDataConn>("redis").await?;
+
+        // Get an asynchronous Redis connection to execute Redis commands.
+        let mut redis_conn = data_conn.get_connection_async().await?;
+
+        redis_conn.set("greeting", greeting)
+            .await
+            .map_err(|e| errs::Err::with_source("fail to set greeting", e))?;
+
+        // Register an asynchronous force back process to revert updates to Redis when an error occurs.
+        data_conn.add_force_back_async(|mut redis_conn| async move {
+            redis_conn.del("greeting")
+                .await
+                .map_err(|e| errs::Err::with_source("fail to force back", e))?;
+            Ok(())
+        }).await;
+
+        Ok(())
+    }
+}
+
+impl GettingDataAcc for sabi::tokio::DataHub {}
+impl RedisSayingDataAcc for sabi::tokio::DataHub {}
+
+#[override_with(GettingDataAcc, RedisSayingDataAcc)]
+impl MyData for sabi::tokio::DataHub {}
 ```
 
 
