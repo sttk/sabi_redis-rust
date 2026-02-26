@@ -73,7 +73,7 @@ impl RedisAsyncDataConn {
     ///
     /// # Arguments
     /// - `f`: An asynchronous closure that takes a `deadpool_redis::Connection` and returns
-    ///        an `errs::Result<()>`.
+    ///   an `errs::Result<()>`.
     pub async fn add_pre_commit_async<F, Fut>(&mut self, mut f: F)
     where
         F: FnMut(Connection) -> Fut,
@@ -101,7 +101,7 @@ impl RedisAsyncDataConn {
     ///
     /// # Arguments
     /// - `f`: An asynchronous closure that takes a `deadpool_redis::Connection` and returns
-    ///        an `errs::Result<()>`.
+    ///   an `errs::Result<()>`.
     pub async fn add_post_commit_async<F, Fut>(&mut self, mut f: F)
     where
         F: FnMut(Connection) -> Fut,
@@ -130,7 +130,7 @@ impl RedisAsyncDataConn {
     ///
     /// # Arguments
     /// - `f`: An asynchronous closure that takes a `deadpool_redis::Connection` and returns
-    ///        an `errs::Result<()>`.
+    ///   an `errs::Result<()>`.
     pub async fn add_force_back_async<F, Fut>(&mut self, mut f: F)
     where
         F: FnMut(Connection) -> Fut,
