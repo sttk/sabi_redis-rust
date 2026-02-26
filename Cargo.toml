@@ -1,9 +1,9 @@
 [package]
 name = "sabi_redis"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Takayuki Sato <sttk.xslet@gmail.com>"]
 edition = "2021"
-rust-version = "1.85.1"
+rust-version = "1.87.0"
 description = "The sabi data access library for Redis in Rust"
 documentation = "https://docs.rs/sabi_redis"
 readme = "README.md"

@@ -21,10 +21,10 @@ In Cargo.toml, write this crate as a dependency:
 
 ```toml
 [dependencies]
-sabi_redis = "0.1.0" # `standalone-sync` feature is enabled by default.
+sabi_redis = "0.2.0" # `standalone-sync` feature is enabled by default.
 
 # If you want to use the `standalone-async` feature (without `standalone-sync`):
-# sabi_redis = { version = "0.1.0", default-features = false, features = ["standalone-async"] }
+# sabi_redis = { version = "0.2.0", default-features = false, features = ["standalone-async"] }
 ```
 
 ## Usage
@@ -217,14 +217,14 @@ Result:
 
 ## License
 
-Copyright (C) 2025 Takayuki Sato
+Copyright (C) 2025-2026 Takayuki Sato
 
 This program is free software under MIT License.<br>
 See the file LICENSE in this distribution for more details.
 
 
 [repo-url]: https://github.com/sttk/sabi_redis-rust
-[cratesio-img]: https://img.shields.io/badge/crates.io-ver.0.1.0-fc8d62?logo=rust
+[cratesio-img]: https://img.shields.io/badge/crates.io-ver.0.2.0-fc8d62?logo=rust
 [cratesio-url]: https://crates.io/crates/sabi_redis
 [docrs-img]: https://img.shields.io/badge/doc.rs-sabi_redis-66c2a5?logo=docs.rs
 [docrs-url]: https://docs.rs/sabi_redis
