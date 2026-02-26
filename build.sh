@@ -28,13 +28,17 @@ compile() {
 }
 
 test() {
-  #echo "### features: default"
+  echo "### features: default (= standalone-sync)"
   cargo test -- --show-output
   errcheck $?
 
-  #echo "### features: full"
-  #cargo test --all-features -- --show-output
-  #errcheck $?
+  echo "### features: standalone-async"
+  cargo test --features standalone-async --no-default-features -- --show-output
+  errcheck $?
+
+  echo "### features: standalone-full"
+  cargo test --features standalone-full -- --show-output
+  errcheck $?
 }
 
 unit() {

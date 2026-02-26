@@ -444,7 +444,7 @@ where
 }
 
 #[cfg(test)]
-mod test_redis {
+mod test_sync {
     use super::*;
     use override_macro::{overridable, override_with};
     use redis::Commands;
@@ -632,8 +632,6 @@ mod test_redis {
         }
     }
 
-    use std::error::Error;
-
     #[test]
     fn fail_to_setup() {
         let mut data = DataHub::new();
@@ -702,24 +700,26 @@ mod test_redis {
             panic!("{:?}", err);
         }
 
-        let client = redis::Client::open("redis://127.0.0.1:6379/3").unwrap();
-        let mut conn = client.get_connection().unwrap();
+        {
+            let client = redis::Client::open("redis://127.0.0.1:6379/3").unwrap();
+            let mut conn = client.get_connection().unwrap();
 
-        let s: redis::RedisResult<Option<String>> = conn.get("sample_force_back");
-        let _: redis::RedisResult<()> = conn.del("sample_force_back");
-        assert_eq!(s.unwrap().unwrap(), "Good Morning");
+            let s: redis::RedisResult<Option<String>> = conn.get("sample_force_back");
+            let _: redis::RedisResult<()> = conn.del("sample_force_back");
+            assert_eq!(s.unwrap().unwrap(), "Good Morning");
 
-        let s: redis::RedisResult<Option<String>> = conn.get("sample_force_back_2");
-        let _: redis::RedisResult<()> = conn.del("sample_force_back_2");
-        assert_eq!(s.unwrap().unwrap(), "Good Morning");
+            let s: redis::RedisResult<Option<String>> = conn.get("sample_force_back_2");
+            let _: redis::RedisResult<()> = conn.del("sample_force_back_2");
+            assert_eq!(s.unwrap().unwrap(), "Good Morning");
 
-        let log: redis::RedisResult<Option<String>> = conn.get("log");
-        let _: redis::RedisResult<()> = conn.del("log");
-        assert_eq!(log.unwrap().unwrap(), "LOG1.LOG3.");
+            let log: redis::RedisResult<Option<String>> = conn.get("log");
+            let _: redis::RedisResult<()> = conn.del("log");
+            assert_eq!(log.unwrap().unwrap(), "LOG1.LOG3.");
+        }
     }
 
     #[test]
-    fn tst_txn_and_pre_commit() {
+    fn test_txn_and_pre_commit() {
         let mut data = DataHub::new();
         data.uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/4"));
 
@@ -727,15 +727,17 @@ mod test_redis {
             panic!("{:?}", err);
         }
 
-        let client = redis::Client::open("redis://127.0.0.1:6379/4").unwrap();
-        let mut conn = client.get_connection().unwrap();
-        let s: redis::RedisResult<Option<String>> = conn.get("sample_pre_commit");
-        let _: redis::RedisResult<()> = conn.del("sample_pre_commit");
-        assert_eq!(s.unwrap().unwrap(), "Good Evening");
+        {
+            let client = redis::Client::open("redis://127.0.0.1:6379/4").unwrap();
+            let mut conn = client.get_connection().unwrap();
+            let s: redis::RedisResult<Option<String>> = conn.get("sample_pre_commit");
+            let _: redis::RedisResult<()> = conn.del("sample_pre_commit");
+            assert_eq!(s.unwrap().unwrap(), "Good Evening");
+        }
     }
 
     #[test]
-    fn tst_txn_and_post_commit() {
+    fn test_txn_and_post_commit() {
         let mut data = DataHub::new();
         data.uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/5"));
 
@@ -743,11 +745,13 @@ mod test_redis {
             panic!("{:?}", err);
         }
 
-        let client = redis::Client::open("redis://127.0.0.1:6379/5").unwrap();
-        let mut conn = client.get_connection().unwrap();
-        let s: redis::RedisResult<Option<String>> = conn.get("sample_post_commit");
-        let _: redis::RedisResult<()> = conn.del("sample_post_commit");
-        assert_eq!(s.unwrap().unwrap(), "Good Night");
+        {
+            let client = redis::Client::open("redis://127.0.0.1:6379/5").unwrap();
+            let mut conn = client.get_connection().unwrap();
+            let s: redis::RedisResult<Option<String>> = conn.get("sample_post_commit");
+            let _: redis::RedisResult<()> = conn.del("sample_post_commit");
+            assert_eq!(s.unwrap().unwrap(), "Good Night");
+        }
     }
 
     #[test]
@@ -761,19 +765,21 @@ mod test_redis {
             panic!();
         }
 
-        let client = redis::Client::open("redis://127.0.0.1:6379/6").unwrap();
-        let mut conn = client.get_connection().unwrap();
+        {
+            let client = redis::Client::open("redis://127.0.0.1:6379/6").unwrap();
+            let mut conn = client.get_connection().unwrap();
 
-        let r: redis::RedisResult<Option<String>> = conn.get("sample_force_back");
-        let _: redis::RedisResult<()> = conn.del("sample_force_back");
-        assert!(r.unwrap().is_none());
+            let r: redis::RedisResult<Option<String>> = conn.get("sample_force_back");
+            let _: redis::RedisResult<()> = conn.del("sample_force_back");
+            assert!(r.unwrap().is_none());
 
-        let r: redis::RedisResult<Option<String>> = conn.get("sample_force_back_2");
-        let _: redis::RedisResult<()> = conn.del("sample_force_back_2");
-        assert!(r.unwrap().is_none());
+            let r: redis::RedisResult<Option<String>> = conn.get("sample_force_back_2");
+            let _: redis::RedisResult<()> = conn.del("sample_force_back_2");
+            assert!(r.unwrap().is_none());
 
-        let log: redis::RedisResult<Option<String>> = conn.get("log");
-        let _: redis::RedisResult<()> = conn.del("log");
-        assert_eq!(log.unwrap().unwrap(), "LOG1.LOG3.LOG4.LOG2.");
+            let log: redis::RedisResult<Option<String>> = conn.get("log");
+            let _: redis::RedisResult<()> = conn.del("log");
+            assert_eq!(log.unwrap().unwrap(), "LOG1.LOG3.LOG4.LOG2.");
+        }
     }
 }
