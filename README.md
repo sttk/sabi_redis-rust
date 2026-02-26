@@ -7,7 +7,8 @@ within the sabi framework. It includes `DataSrc` and `DataConn` derived classes 
 your development process more efficient
 
 `RedisDataSrc` and `RedisDataConn` are designed for a standalone Redis server and provide
-synchronous connections for processing Redis commands.
+synchronous connections for processing Redis commands. Additionally, `RedisAsyncDataSrc` and
+`RedisAsyncDataConn` are available for asynchronous command processing.
 
 Unlike relational databases, Redis does not support data rollbacks. This can lead to data
 inconsistency if a transaction involving both Redis and another database fails mid-process.
@@ -20,7 +21,10 @@ In Cargo.toml, write this crate as a dependency:
 
 ```toml
 [dependencies]
-sabi_redis = "0.1.0"
+sabi_redis = "0.1.0" # `standalone-sync` feature is enabled by default.
+
+# If you want to use the `standalone-async` feature (without `standalone-sync`):
+# sabi_redis = { version = "0.1.0", default-features = false, features = ["standalone-async"] }
 ```
 
 ## Usage
