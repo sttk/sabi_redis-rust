@@ -39,22 +39,22 @@ execute a simple command.
 use errs;
 use override_macro::{overridable, override_with};
 use redis::TypedCommands;
-use sabi;
+use sabi::{uses, setup};
 use sabi_redis::{RedisDataSrc, RedisDataConn};
 
 fn main() -> Result<(), errs::Err> {
     // Register a `RedisDataSrc` instance to connect to a Redis server with the key "redis".
-    sabi::uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/0"));
+    uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/0"));
 
     // In this setup process, the registered `RedisDataSrc` instance connects to a Redis server.
-    let _auto_shutdown = sabi::setup()?;
+    let _auto_shutdown = setup()?;
 
     my_app()
 }
 
 fn my_app() -> errs::Result<()> {
     let mut data = sabi::DataHub::new();
-    sabi::txn!(my_logic, data)
+    data.txn(my_logic)
 }
 
 fn my_logic(data: &mut impl MyData) -> errs::Result<()> {
@@ -115,27 +115,27 @@ execute a simple asynchronous command.
 use errs;
 use override_macro::{overridable, override_with};
 use redis::AsyncCommands;
-use sabi;
+use sabi::{logic, uses, setup_async};
 use sabi_redis::{RedisAsyncDataSrc, RedisAsyncDataConn};
 
 #[tokio::main]
 async fn main() -> Result<(), errs::Err> {
     // Register a `RedisAsyncDataSrc` instance to connect to a Redis server with the key "redis".
-    sabi::tokio::uses("redis", RedisAsyncDataSrc::new("redis://127.0.0.1:6379/0"));
+    uses("redis", RedisAsyncDataSrc::new("redis://127.0.0.1:6379/0"));
 
     // In this setup process, the registered `RedisAsyncDataSrc` instance connects to a Redis server.
-    let _auto_shutdown = sabi::tokio::setup_async().await?;
+    let _auto_shutdown = setup_async().await?;
 
-    my_app().await
+    my_app_async().await
 }
 
-async fn my_app() -> errs::Result<()> {
+async fn my_app_async() -> errs::Result<()> {
     let mut data = sabi::tokio::DataHub::new();
-    data.txn_async(sabi::tokio::logic!(my_logic)).await?;
+    data.txn_async(logic!(my_logic_async)).await?;
     Ok(())
 }
 
-async fn my_logic(data: &mut impl MyData) -> errs::Result<()> {
+async fn my_logic_async(data: &mut impl MyData) -> errs::Result<()> {
     let greeting = data.get_greeting_async().await?;
     data.say_greeting_async(&greeting).await
 }
