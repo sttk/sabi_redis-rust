@@ -2,7 +2,6 @@
 // This program is free software under MIT License.
 // See the file LICENSE in this distribution for more details.
 
-use errs::Err;
 use sabi::{AsyncGroup, DataConn, DataSrc};
 
 use std::cell;
@@ -120,9 +119,9 @@ pub enum RedisDataSrcError {
 #[allow(clippy::type_complexity)]
 pub struct RedisDataConn {
     pool: r2d2::Pool<redis::Client>,
-    pre_commit_vec: Vec<Box<dyn FnMut(&mut redis::Connection) -> Result<(), Err>>>,
-    post_commit_vec: Vec<Box<dyn FnMut(&mut redis::Connection) -> Result<(), Err>>>,
-    force_back_vec: Vec<Box<dyn FnMut(&mut redis::Connection) -> Result<(), Err>>>,
+    pre_commit_vec: Vec<Box<dyn FnMut(&mut redis::Connection) -> errs::Result<()>>>,
+    post_commit_vec: Vec<Box<dyn FnMut(&mut redis::Connection) -> errs::Result<()>>>,
+    force_back_vec: Vec<Box<dyn FnMut(&mut redis::Connection) -> errs::Result<()>>>,
 }
 
 impl RedisDataConn {
@@ -138,10 +137,10 @@ impl RedisDataConn {
     /// Returns a mutable reference to the underlying Redis connection.
     ///
     /// This reference allows direct access to Redis commands.
-    pub fn get_connection(&mut self) -> Result<r2d2::PooledConnection<redis::Client>, Err> {
+    pub fn get_connection(&mut self) -> errs::Result<r2d2::PooledConnection<redis::Client>> {
         self.pool
             .get()
-            .map_err(|e| Err::with_source(RedisDataSrcError::FailToGetConnectionFromPool, e))
+            .map_err(|e| errs::Err::with_source(RedisDataSrcError::FailToGetConnectionFromPool, e))
     }
 
     /// Adds a function to the list of "pre commit" operations.
@@ -150,7 +149,7 @@ impl RedisDataConn {
     /// finished, and right before their commit processes are made,
     pub fn add_pre_commit<F>(&mut self, f: F)
     where
-        F: FnMut(&mut redis::Connection) -> Result<(), Err> + 'static,
+        F: FnMut(&mut redis::Connection) -> errs::Result<()> + 'static,
     {
         self.pre_commit_vec.push(Box::new(f));
     }
@@ -160,7 +159,7 @@ impl RedisDataConn {
     /// The provided function will be called as post-transaction processes.
     pub fn add_post_commit<F>(&mut self, f: F)
     where
-        F: FnMut(&mut redis::Connection) -> Result<(), Err> + 'static,
+        F: FnMut(&mut redis::Connection) -> errs::Result<()> + 'static,
     {
         self.post_commit_vec.push(Box::new(f));
     }
@@ -171,7 +170,7 @@ impl RedisDataConn {
     /// due to a failure in a subsequent operation.
     pub fn add_force_back<F>(&mut self, f: F)
     where
-        F: FnMut(&mut redis::Connection) -> Result<(), Err> + 'static,
+        F: FnMut(&mut redis::Connection) -> errs::Result<()> + 'static,
     {
         self.force_back_vec.push(Box::new(f));
     }
@@ -184,7 +183,7 @@ impl DataConn for RedisDataConn {
     /// before their commit processes are made, Since Redis does not have a rollback feature,
     /// it is possible to maintain transactional consistency by performing updates at this timing,
     /// as long as the updated data are not searched for within the transaction.
-    fn pre_commit(&mut self, _ag: &mut AsyncGroup) -> Result<(), Err> {
+    fn pre_commit(&mut self, _ag: &mut AsyncGroup) -> errs::Result<()> {
         match self.pool.get() {
             Ok(mut conn) => {
                 for f in self.pre_commit_vec.iter_mut() {
@@ -192,7 +191,7 @@ impl DataConn for RedisDataConn {
                 }
                 Ok(())
             }
-            Err(e) => Err(Err::with_source(
+            Err(e) => Err(errs::Err::with_source(
                 RedisDataSrcError::FailToGetConnectionFromPool,
                 e,
             )),
@@ -204,7 +203,7 @@ impl DataConn for RedisDataConn {
     /// Note that Redis does not have a native rollback mechanism. All changes are committed
     /// as they are executed. This method is provided to satisfy the `DataConn` trait but
     /// does not perform any action.
-    fn commit(&mut self, _ag: &mut AsyncGroup) -> Result<(), Err> {
+    fn commit(&mut self, _ag: &mut AsyncGroup) -> errs::Result<()> {
         Ok(())
     }
 
@@ -217,12 +216,13 @@ impl DataConn for RedisDataConn {
         match self.pool.get() {
             Ok(mut conn) => {
                 for f in self.post_commit_vec.iter_mut() {
+                    // for error notification
                     let _ = f(&mut conn);
                 }
             }
             Err(e) => {
                 // for error notification
-                let _ = Err::with_source(RedisDataSrcError::FailToGetConnectionFromPool, e);
+                let _ = errs::Err::with_source(RedisDataSrcError::FailToGetConnectionFromPool, e);
             }
         };
     }
@@ -250,12 +250,13 @@ impl DataConn for RedisDataConn {
         match self.pool.get() {
             Ok(mut conn) => {
                 for f in self.force_back_vec.iter_mut().rev() {
+                    // for error notification
                     let _ = f(&mut conn);
                 }
             }
             Err(e) => {
                 // for error notification
-                let _ = Err::with_source(RedisDataSrcError::FailToGetConnectionFromPool, e);
+                let _ = errs::Err::with_source(RedisDataSrcError::FailToGetConnectionFromPool, e);
             }
         };
     }
@@ -275,13 +276,12 @@ impl DataConn for RedisDataConn {
 /// ## Example
 ///
 /// ```rust
-/// use errs;
 /// use override_macro::{overridable, override_with};
 /// use redis::TypedCommands;
 /// use sabi;
 /// use sabi_redis::{RedisDataSrc, RedisDataConn};
 ///
-/// fn main() -> Result<(), errs::Err> {
+/// fn main() -> errs::Result<()> {
 ///     // Register a `RedisDataSrc` instance to connect to a Redis server with the key "redis".
 ///     sabi::uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/0"));
 ///
@@ -291,32 +291,32 @@ impl DataConn for RedisDataConn {
 ///     my_app()
 /// }
 ///
-/// fn my_app() -> Result<(), errs::Err> {
+/// fn my_app() -> errs::Result<()> {
 ///     let mut data = sabi::DataHub::new();
 ///     data.txn(my_logic)
 /// }
 ///
-/// fn my_logic(data: &mut impl MyData) -> Result<(), errs::Err> {
+/// fn my_logic(data: &mut impl MyData) -> errs::Result<()> {
 ///     let greeting = data.get_greeting()?;
 ///     data.say_greeting(&greeting)
 /// }
 ///
 /// #[overridable]
 /// trait MyData {
-///     fn get_greeting(&mut self) -> Result<String, errs::Err>;
-///     fn say_greeting(&mut self, greeting: &str) -> Result<(), errs::Err>;
+///     fn get_greeting(&mut self) -> errs::Result<String>;
+///     fn say_greeting(&mut self, greeting: &str) -> errs::Result<()>;
 /// }
 ///
 /// #[overridable]
 /// trait GettingDataAcc: sabi::DataAcc {
-///     fn get_greeting(&mut self) -> Result<String, errs::Err> {
+///     fn get_greeting(&mut self) -> errs::Result<String> {
 ///         Ok("Hello!".to_string())
 ///     }
 /// }
 ///
 /// #[overridable]
 /// trait RedisSayingDataAcc: sabi::DataAcc {
-///     fn say_greeting(&mut self, greeting: &str) -> Result<(), errs::Err> {
+///     fn say_greeting(&mut self, greeting: &str) -> errs::Result<()> {
 ///         // Retrieve a `RedisDataConn` instance by the key "redis".
 ///         let data_conn = self.get_data_conn::<RedisDataConn>("redis")?;
 ///
@@ -390,12 +390,9 @@ where
     /// This method creates a `redis::Client` and builds an `r2d2::Pool`.
     /// It must be called before `create_data_conn`. It will return an error if
     /// called more than once on the same instance.
-    fn setup(&mut self, _ag: &mut AsyncGroup) -> Result<(), Err> {
-        let mut conn_info_opt = None;
-        mem::swap(&mut conn_info_opt, &mut self.conn_info);
-
-        let mut pool_builder_opt = None;
-        mem::swap(&mut pool_builder_opt, &mut self.pool_builder);
+    fn setup(&mut self, _ag: &mut AsyncGroup) -> errs::Result<()> {
+        let conn_info_opt = mem::take(&mut self.conn_info);
+        let pool_builder_opt = mem::take(&mut self.pool_builder);
 
         if let (Some(conn_info), Some(pool_builder)) = (conn_info_opt, pool_builder_opt) {
             let conn_info_string = format!("{:?}", conn_info);
@@ -404,14 +401,17 @@ where
                 Ok(client) => match pool_builder.build(client) {
                     Ok(pool) => {
                         if self.pool.set(pool).is_err() {
-                            Err(Err::new(RedisDataSrcError::AlreadySetup))
+                            Err(errs::Err::new(RedisDataSrcError::AlreadySetup))
                         } else {
                             Ok(())
                         }
                     }
-                    Err(e) => Err(Err::with_source(RedisDataSrcError::FailToBuildPool, e)),
+                    Err(e) => Err(errs::Err::with_source(
+                        RedisDataSrcError::FailToBuildPool,
+                        e,
+                    )),
                 },
-                Err(e) => Err(Err::with_source(
+                Err(e) => Err(errs::Err::with_source(
                     RedisDataSrcError::FailToOpenClient {
                         connection_info: conn_info_string,
                         pool_config: format!("{:?}", pool_builder),
@@ -420,7 +420,7 @@ where
                 )),
             }
         } else {
-            Err(Err::new(RedisDataSrcError::AlreadySetup))
+            Err(errs::Err::new(RedisDataSrcError::AlreadySetup))
         }
     }
 
@@ -434,11 +434,11 @@ where
     ///
     /// This method retrieves a connection from the internal pool. It will return a
     /// `NotSetupYet` error if the data source has not been set up.
-    fn create_data_conn(&mut self) -> Result<Box<RedisDataConn>, Err> {
+    fn create_data_conn(&mut self) -> errs::Result<Box<RedisDataConn>> {
         if let Some(pool) = self.pool.get() {
             Ok(Box::new(RedisDataConn::new(pool.clone())))
         } else {
-            Err(Err::new(RedisDataSrcError::NotSetupYet))
+            Err(errs::Err::new(RedisDataSrcError::NotSetupYet))
         }
     }
 }
@@ -460,33 +460,26 @@ mod test_sync {
 
     #[overridable]
     trait RedisSampleDataAcc: DataAcc {
-        fn get_sample_key(&mut self) -> Result<Option<String>, Err> {
+        fn get_sample_key(&mut self) -> errs::Result<Option<String>> {
             let data_conn = self.get_data_conn::<RedisDataConn>("redis")?;
             let mut conn = data_conn.get_connection()?;
-            let rslt: redis::RedisResult<Option<String>> = conn.get("sample");
-            return match rslt {
-                Ok(opt) => Ok(opt),
-                Err(e) => Err(Err::with_source(SampleError::FailToGetValue, e)),
-            };
+            conn.get("sample")
+                .map_err(|e| errs::Err::with_source(SampleError::FailToGetValue, e))
         }
-        fn set_sample_key(&mut self, val: &str) -> Result<(), Err> {
+        fn set_sample_key(&mut self, val: &str) -> errs::Result<()> {
             let data_conn = self.get_data_conn::<RedisDataConn>("redis")?;
             let mut conn = data_conn.get_connection()?;
-            return match conn.set("sample", val) {
-                Ok(()) => Ok(()),
-                Err(e) => Err(Err::with_source(SampleError::FailToSetValue, e)),
-            };
+            conn.set("sample", val)
+                .map_err(|e| errs::Err::with_source(SampleError::FailToSetValue, e))
         }
-        fn del_sample_key(&mut self) -> Result<(), Err> {
+        fn del_sample_key(&mut self) -> errs::Result<()> {
             let data_conn = self.get_data_conn::<RedisDataConn>("redis")?;
             let mut conn = data_conn.get_connection()?;
-            return match conn.del("sample") {
-                Ok(()) => Ok(()),
-                Err(e) => Err(Err::with_source(SampleError::FailToDelValue, e)),
-            };
+            conn.del("sample")
+                .map_err(|e| errs::Err::with_source(SampleError::FailToDelValue, e))
         }
 
-        fn set_sample_key_with_force_back(&mut self, val: &str) -> Result<(), Err> {
+        fn set_sample_key_with_force_back(&mut self, val: &str) -> errs::Result<()> {
             let data_conn = self.get_data_conn::<RedisDataConn>("redis")?;
             let mut conn = data_conn.get_connection()?;
 
@@ -494,69 +487,59 @@ mod test_sync {
             let log = log_opt.unwrap_or("".to_string());
             let _: Option<()> = conn.set("log", log + "LOG1.").unwrap();
 
-            if let Err(e) = conn.set::<&str, &str, ()>("sample_force_back", val) {
-                return Err(Err::with_source(SampleError::FailToSetValue, e));
-            }
+            conn.set::<&str, &str, ()>("sample_force_back", val)
+                .map_err(|e| errs::Err::with_source(SampleError::FailToSetValue, e))?;
 
             data_conn.add_force_back(|conn| {
                 let log_opt: Option<String> = conn.get("log").unwrap();
                 let log = log_opt.unwrap_or("".to_string());
                 let _: Option<()> = conn.set("log", log + "LOG2.").unwrap();
 
-                let r: redis::RedisResult<()> = conn.del("sample_force_back");
-                match r {
-                    Ok(()) => Ok(()),
-                    Err(e) => Err(Err::with_source("fail to force back", e)),
-                }
+                conn.del("sample_force_back")
+                    .map_err(|e| errs::Err::with_source("fail to force back", e))
             });
 
             let log_opt: Option<String> = conn.get("log").unwrap();
             let log = log_opt.unwrap_or("".to_string());
             let _: Option<()> = conn.set("log", log + "LOG3.").unwrap();
 
-            if let Err(e) = conn.set::<&str, &str, ()>("sample_force_back_2", val) {
-                return Err(Err::with_source(SampleError::FailToSetValue, e));
-            }
+            conn.set::<&str, &str, ()>("sample_force_back_2", val)
+                .map_err(|e| errs::Err::with_source(SampleError::FailToSetValue, e))?;
 
             data_conn.add_force_back(|conn| {
                 let log_opt: Option<String> = conn.get("log").unwrap();
                 let log = log_opt.unwrap_or("".to_string());
                 let _: Option<()> = conn.set("log", log + "LOG4.").unwrap();
 
-                let r: redis::RedisResult<()> = conn.del("sample_force_back_2");
-                match r {
-                    Ok(()) => Ok(()),
-                    Err(e) => Err(Err::with_source("fail to force back", e)),
-                }
+                conn.del("sample_force_back_2")
+                    .map_err(|e| errs::Err::with_source("fail to force back", e))
             });
 
             Ok(())
         }
 
-        fn set_sample_key_in_pre_commit(&mut self, val: &str) -> Result<(), Err> {
+        fn set_sample_key_in_pre_commit(&mut self, val: &str) -> errs::Result<()> {
             let data_conn = self.get_data_conn::<RedisDataConn>("redis")?;
 
             let val_owned = val.to_string();
 
             data_conn.add_pre_commit(move |conn| {
-                if let Err(e) = conn.set::<&str, &str, ()>("sample_pre_commit", &val_owned) {
-                    return Err(Err::with_source(SampleError::FailToSetValue, e));
-                }
+                conn.set::<&str, &str, ()>("sample_pre_commit", &val_owned)
+                    .map_err(|e| errs::Err::with_source(SampleError::FailToSetValue, e))?;
                 Ok(())
             });
 
             Ok(())
         }
 
-        fn set_sample_key_in_post_commit(&mut self, val: &str) -> Result<(), Err> {
+        fn set_sample_key_in_post_commit(&mut self, val: &str) -> errs::Result<()> {
             let data_conn = self.get_data_conn::<RedisDataConn>("redis")?;
 
             let val_owned = val.to_string();
 
             data_conn.add_post_commit(move |conn| {
-                if let Err(e) = conn.set::<&str, &str, ()>("sample_post_commit", &val_owned) {
-                    return Err(Err::with_source(SampleError::FailToSetValue, e));
-                }
+                conn.set::<&str, &str, ()>("sample_post_commit", &val_owned)
+                    .map_err(|e| errs::Err::with_source(SampleError::FailToSetValue, e))?;
                 Ok(())
             });
 
@@ -567,17 +550,17 @@ mod test_sync {
 
     #[overridable]
     trait SampleData {
-        fn get_sample_key(&mut self) -> Result<Option<String>, Err>;
-        fn set_sample_key(&mut self, value: &str) -> Result<(), Err>;
-        fn del_sample_key(&mut self) -> Result<(), Err>;
-        fn set_sample_key_with_force_back(&mut self, val: &str) -> Result<(), Err>;
-        fn set_sample_key_in_pre_commit(&mut self, val: &str) -> Result<(), Err>;
-        fn set_sample_key_in_post_commit(&mut self, val: &str) -> Result<(), Err>;
+        fn get_sample_key(&mut self) -> errs::Result<Option<String>>;
+        fn set_sample_key(&mut self, value: &str) -> errs::Result<()>;
+        fn del_sample_key(&mut self) -> errs::Result<()>;
+        fn set_sample_key_with_force_back(&mut self, val: &str) -> errs::Result<()>;
+        fn set_sample_key_in_pre_commit(&mut self, val: &str) -> errs::Result<()>;
+        fn set_sample_key_in_post_commit(&mut self, val: &str) -> errs::Result<()>;
     }
     #[override_with(RedisSampleDataAcc)]
     impl SampleData for DataHub {}
 
-    fn sample_logic(data: &mut impl SampleData) -> Result<(), Err> {
+    fn sample_logic(data: &mut impl SampleData) -> errs::Result<()> {
         match data.get_sample_key()? {
             Some(_) => panic!("Data exists"),
             None => {}
@@ -595,27 +578,25 @@ mod test_sync {
     }
 
     #[test]
-    fn ok_by_redis_uri() {
+    fn ok_by_redis_uri() -> Result<(), Box<dyn std::error::Error>> {
         let mut data = DataHub::new();
         data.uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/0"));
-        if let Err(err) = data.run(sample_logic) {
-            panic!("{:?}", err);
-        }
+        data.run(sample_logic)?;
+        Ok(())
     }
 
     #[test]
-    fn ok_by_connection_info() {
+    fn ok_by_connection_info() -> Result<(), Box<dyn std::error::Error>> {
         let ci: redis::ConnectionInfo = "redis://127.0.0.1:6379/1".parse().unwrap();
 
         let mut data = DataHub::new();
         data.uses("redis", RedisDataSrc::new(ci));
-        if let Err(err) = data.run(sample_logic) {
-            panic!("{:?}", err);
-        }
+        data.run(sample_logic)?;
+        Ok(())
     }
 
     #[test]
-    fn ok_by_uri_and_pool_config() {
+    fn ok_by_uri_and_pool_config() -> Result<(), Box<dyn std::error::Error>> {
         let builder = r2d2::Pool::<redis::Client>::builder()
             .max_size(100)
             .min_idle(Some(10))
@@ -627,9 +608,8 @@ mod test_sync {
             "redis",
             RedisDataSrc::with_pool_config("redis://127.0.0.1:6379/2", builder),
         );
-        if let Err(err) = data.run(sample_logic) {
-            panic!("{:?}", err);
-        }
+        data.run(sample_logic)?;
+        Ok(())
     }
 
     #[test]
@@ -675,30 +655,28 @@ mod test_sync {
         }
     }
 
-    fn sample_logic_in_txn_and_commit(data: &mut impl SampleData) -> Result<(), Err> {
+    fn sample_logic_in_txn_and_commit(data: &mut impl SampleData) -> errs::Result<()> {
         data.set_sample_key_with_force_back("Good Morning")?;
         Ok(())
     }
-    fn sample_logic_in_txn_and_force_back(data: &mut impl SampleData) -> Result<(), Err> {
+    fn sample_logic_in_txn_and_force_back(data: &mut impl SampleData) -> errs::Result<()> {
         data.set_sample_key_with_force_back("Good Afternoon")?;
-        Err(Err::new("XXX"))
+        Err(errs::Err::new("XXX"))
     }
-    fn sample_logic_in_txn_and_pre_commit(data: &mut impl SampleData) -> Result<(), Err> {
+    fn sample_logic_in_txn_and_pre_commit(data: &mut impl SampleData) -> errs::Result<()> {
         data.set_sample_key_in_pre_commit("Good Evening")?;
         Ok(())
     }
-    fn sample_logic_in_txn_and_post_commit(data: &mut impl SampleData) -> Result<(), Err> {
+    fn sample_logic_in_txn_and_post_commit(data: &mut impl SampleData) -> errs::Result<()> {
         data.set_sample_key_in_post_commit("Good Night")?;
         Ok(())
     }
 
     #[test]
-    fn test_txn_and_commit() {
+    fn test_txn_and_commit() -> Result<(), Box<dyn std::error::Error>> {
         let mut data = DataHub::new();
         data.uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/3"));
-        if let Err(err) = data.txn(sample_logic_in_txn_and_commit) {
-            panic!("{:?}", err);
-        }
+        data.txn(sample_logic_in_txn_and_commit)?;
 
         {
             let client = redis::Client::open("redis://127.0.0.1:6379/3").unwrap();
@@ -716,16 +694,15 @@ mod test_sync {
             let _: redis::RedisResult<()> = conn.del("log");
             assert_eq!(log.unwrap().unwrap(), "LOG1.LOG3.");
         }
+        Ok(())
     }
 
     #[test]
-    fn test_txn_and_pre_commit() {
+    fn test_txn_and_pre_commit() -> Result<(), Box<dyn std::error::Error>> {
         let mut data = DataHub::new();
         data.uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/4"));
 
-        if let Err(err) = data.txn(sample_logic_in_txn_and_pre_commit) {
-            panic!("{:?}", err);
-        }
+        data.txn(sample_logic_in_txn_and_pre_commit)?;
 
         {
             let client = redis::Client::open("redis://127.0.0.1:6379/4").unwrap();
@@ -734,16 +711,15 @@ mod test_sync {
             let _: redis::RedisResult<()> = conn.del("sample_pre_commit");
             assert_eq!(s.unwrap().unwrap(), "Good Evening");
         }
+        Ok(())
     }
 
     #[test]
-    fn test_txn_and_post_commit() {
+    fn test_txn_and_post_commit() -> Result<(), Box<dyn std::error::Error>> {
         let mut data = DataHub::new();
         data.uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/5"));
 
-        if let Err(err) = data.txn(sample_logic_in_txn_and_post_commit) {
-            panic!("{:?}", err);
-        }
+        data.txn(sample_logic_in_txn_and_post_commit)?;
 
         {
             let client = redis::Client::open("redis://127.0.0.1:6379/5").unwrap();
@@ -752,6 +728,7 @@ mod test_sync {
             let _: redis::RedisResult<()> = conn.del("sample_post_commit");
             assert_eq!(s.unwrap().unwrap(), "Good Night");
         }
+        Ok(())
     }
 
     #[test]
