@@ -19,15 +19,7 @@ pub enum RedisDataSrcError {
     AlreadySetup,
 
     /// Indicates a failure to open a connection from the `redis::Client` to the Redis server.
-    /// Contains the connection information string and connection pooling configuration string
-    /// that caused the failure.
-    FailToOpenClient {
-        /// The connection information string.
-        connection_info: String,
-
-        /// The connection pooling configuration string.
-        pool_config: String,
-    },
+    FailToOpenClient,
 
     /// Indicates a failure to build the Redis connection pool.
     FailToBuildPool,
@@ -372,11 +364,11 @@ where
     ///
     /// The connection information is stored, but the connection pool is not built
     /// until the `setup` method is called.
-    pub fn with_pool_config(conn_info: T, pool_config: r2d2::Builder<redis::Client>) -> Self {
+    pub fn with_pool_builder(conn_info: T, pool_builder: r2d2::Builder<redis::Client>) -> Self {
         Self {
             pool: cell::OnceCell::new(),
             conn_info: Some(conn_info),
-            pool_builder: Some(pool_config),
+            pool_builder: Some(pool_builder),
         }
     }
 }
@@ -394,33 +386,21 @@ where
         let conn_info_opt = mem::take(&mut self.conn_info);
         let pool_builder_opt = mem::take(&mut self.pool_builder);
 
-        if let (Some(conn_info), Some(pool_builder)) = (conn_info_opt, pool_builder_opt) {
-            let conn_info_string = format!("{:?}", conn_info);
+        let (conn_info, pool_builder) = conn_info_opt
+            .zip(pool_builder_opt)
+            .ok_or_else(|| errs::Err::new(RedisDataSrcError::AlreadySetup))?;
 
-            match redis::Client::open(conn_info) {
-                Ok(client) => match pool_builder.build(client) {
-                    Ok(pool) => {
-                        if self.pool.set(pool).is_err() {
-                            Err(errs::Err::new(RedisDataSrcError::AlreadySetup))
-                        } else {
-                            Ok(())
-                        }
-                    }
-                    Err(e) => Err(errs::Err::with_source(
-                        RedisDataSrcError::FailToBuildPool,
-                        e,
-                    )),
-                },
-                Err(e) => Err(errs::Err::with_source(
-                    RedisDataSrcError::FailToOpenClient {
-                        connection_info: conn_info_string,
-                        pool_config: format!("{:?}", pool_builder),
-                    },
-                    e,
-                )),
-            }
-        } else {
+        let client = redis::Client::open(conn_info)
+            .map_err(|e| errs::Err::with_source(RedisDataSrcError::FailToOpenClient, e))?;
+
+        let pool = pool_builder
+            .build(client)
+            .map_err(|e| errs::Err::with_source(RedisDataSrcError::FailToBuildPool, e))?;
+
+        if self.pool.set(pool).is_err() {
             Err(errs::Err::new(RedisDataSrcError::AlreadySetup))
+        } else {
+            Ok(())
         }
     }
 
@@ -606,7 +586,7 @@ mod test_sync {
         let mut data = DataHub::new();
         data.uses(
             "redis",
-            RedisDataSrc::with_pool_config("redis://127.0.0.1:6379/2", builder),
+            RedisDataSrc::with_pool_builder("redis://127.0.0.1:6379/2", builder),
         );
         data.run(sample_logic)?;
         Ok(())
@@ -624,13 +604,7 @@ mod test_sync {
                         assert_eq!(errors[0].0.as_ref(), "redis");
                         if let Ok(r) = errors[0].1.reason::<RedisDataSrcError>() {
                             match r {
-                                RedisDataSrcError::FailToOpenClient {
-                                    connection_info,
-                                    pool_config,
-                                } => {
-                                    assert_eq!(connection_info, "\"xxxxx\"");
-                                    assert_eq!(pool_config, "Builder { max_size: 10, min_idle: None, test_on_check_out: true, max_lifetime: Some(1800s), idle_timeout: Some(600s), connection_timeout: 30s, error_handler: LoggingErrorHandler, event_handler: NopEventHandler, connection_customizer: NopConnectionCustomizer }");
-                                }
+                                RedisDataSrcError::FailToOpenClient => {}
                                 _ => panic!(),
                             }
                         }

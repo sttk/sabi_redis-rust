@@ -13,16 +13,18 @@ use std::{cell, fmt, mem, pin};
 pub enum RedisAsyncDataSrcError {
     /// Indicates that the `RedisAsyncDataSrc` has not been set up yet (i.e., `setup_async` was not called).
     NotSetupYet,
+
     /// Indicates that an attempt was made to set up `RedisAsyncDataSrc` when it was already set up,
     /// or to set the internal pool when it was already set.
     AlreadySetup,
+
+    /// Indicates a failure to convert the `redis::ConnectionInfo` into
+    /// `deadpool_redis::ConnectionInfo`.
+    FailToConvertConnectionInfo,
+
     /// Indicates a failure to build the Redis connection pool.
-    FailToBuildPool {
-        /// The connection information string used when building the pool.
-        connection_info: String,
-        /// The pool configuration string used when building the pool.
-        pool_config: String,
-    },
+    FailToBuildPool,
+
     /// Indicates a failure to get a connection from the Redis pool.
     FailToGetConnectionFromPool,
 }
@@ -312,28 +314,15 @@ where
             .zip(pool_config_opt)
             .ok_or_else(|| errs::Err::new(RedisAsyncDataSrcError::AlreadySetup))?;
 
-        let conn_info_string = format!("{:?}", conn_info);
-
         let ci = conn_info.into_connection_info().map_err(|e| {
-            errs::Err::with_source(
-                RedisAsyncDataSrcError::FailToBuildPool {
-                    connection_info: conn_info_string.clone(),
-                    pool_config: format!("{:?}", pool_config),
-                },
-                e,
-            )
+            errs::Err::with_source(RedisAsyncDataSrcError::FailToConvertConnectionInfo, e)
         })?;
 
-        let cfg = Config::from_connection_info(ci);
-        let pool = cfg.create_pool(Some(Runtime::Tokio1)).map_err(|e| {
-            errs::Err::with_source(
-                RedisAsyncDataSrcError::FailToBuildPool {
-                    connection_info: conn_info_string,
-                    pool_config: format!("{:?}", pool_config),
-                },
-                e,
-            )
-        })?;
+        let mut cfg = Config::from_connection_info(ci);
+        cfg.pool.replace(pool_config);
+        let pool = cfg
+            .create_pool(Some(Runtime::Tokio1))
+            .map_err(|e| errs::Err::with_source(RedisAsyncDataSrcError::FailToBuildPool, e))?;
 
         if self.pool.set(pool).is_err() {
             Err(errs::Err::new(RedisAsyncDataSrcError::AlreadySetup))
@@ -589,18 +578,22 @@ mod test_async {
                         assert_eq!(errors[0].0.as_ref(), "redis");
                         if let Ok(r) = errors[0].1.reason::<RedisAsyncDataSrcError>() {
                             match r {
-                                RedisAsyncDataSrcError::FailToBuildPool {
-                                    connection_info,
-                                    pool_config,
-                                } => {
-                                    assert_eq!(connection_info, "\"xxxxx\"");
-                                    assert_eq!(pool_config, "PoolConfig { max_size: 24, timeouts: Timeouts { wait: None, create: None, recycle: None }, queue_mode: Fifo }");
-                                }
+                                RedisAsyncDataSrcError::FailToConvertConnectionInfo => {}
                                 _ => panic!(),
                             }
                         } else {
                             panic!();
                         }
+                        let e = errors[0]
+                            .1
+                            .source()
+                            .unwrap()
+                            .downcast_ref::<redis::RedisError>()
+                            .unwrap();
+                        assert_eq!(e.kind(), redis::ErrorKind::InvalidClientConfig);
+                        assert!(e.detail().is_none());
+                        assert!(e.code().is_none());
+                        assert_eq!(e.category(), "invalid client config");
                     }
                     _ => panic!("{:?}", err),
                 }
