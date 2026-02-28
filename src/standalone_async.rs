@@ -56,13 +56,9 @@ impl RedisAsyncDataConn {
     /// - `Ok(Connection)` if a connection is successfully retrieved.
     /// - `Err(errs::Err)` if there's a failure to get a connection from the pool.
     pub async fn get_connection_async(&mut self) -> errs::Result<Connection> {
-        match self.pool.get().await {
-            Ok(pooled_conn) => Ok(pooled_conn),
-            Err(e) => Err(errs::Err::with_source(
-                RedisAsyncDataSrcError::FailToGetConnectionFromPool,
-                e,
-            )),
-        }
+        self.pool.get().await.map_err(|e| {
+            errs::Err::with_source(RedisAsyncDataSrcError::FailToGetConnectionFromPool, e)
+        })
     }
 
     /// Adds an asynchronous function to be executed during the pre-commit phase.
@@ -392,31 +388,27 @@ mod test_async {
                 .get_data_conn_async::<RedisAsyncDataConn>("redis")
                 .await?;
             let mut conn = data_conn.get_connection_async().await?;
-            let result: redis::RedisResult<Option<String>> = conn.get("sample_async").await;
-            match result {
-                Ok(opt) => Ok(opt),
-                Err(e) => Err(errs::Err::with_source(SampleAsyncError::FailToGetValue, e)),
-            }
+            conn.get("sample_async")
+                .await
+                .map_err(|e| errs::Err::with_source(SampleAsyncError::FailToGetValue, e))
         }
         async fn set_sample_key_async(&mut self, val: &str) -> errs::Result<()> {
             let data_conn = self
                 .get_data_conn_async::<RedisAsyncDataConn>("redis")
                 .await?;
             let mut conn = data_conn.get_connection_async().await?;
-            return match conn.set("sample_async", val).await {
-                Ok(()) => Ok(()),
-                Err(e) => Err(errs::Err::with_source(SampleAsyncError::FailToSetValue, e)),
-            };
+            conn.set("sample_async", val)
+                .await
+                .map_err(|e| errs::Err::with_source(SampleAsyncError::FailToSetValue, e))
         }
         async fn del_sample_key_async(&mut self) -> errs::Result<()> {
             let data_conn = self
                 .get_data_conn_async::<RedisAsyncDataConn>("redis")
                 .await?;
             let mut conn = data_conn.get_connection_async().await?;
-            return match conn.del("sample_async").await {
-                Ok(()) => Ok(()),
-                Err(e) => Err(errs::Err::with_source(SampleAsyncError::FailToDelValue, e)),
-            };
+            conn.del("sample_async")
+                .await
+                .map_err(|e| errs::Err::with_source(SampleAsyncError::FailToDelValue, e))
         }
 
         async fn set_sample_key_with_force_back_async(&mut self, val: &str) -> errs::Result<()> {
@@ -429,12 +421,9 @@ mod test_async {
             let log = log_opt.unwrap_or("".to_string());
             let _: Option<()> = conn.set("log_async", log + "LOG1.").await.unwrap();
 
-            if let Err(e) = conn
-                .set::<&str, &str, ()>("sample_force_back_async", val)
+            conn.set::<&str, &str, ()>("sample_force_back_async", val)
                 .await
-            {
-                return Err(errs::Err::with_source(SampleAsyncError::FailToSetValue, e));
-            }
+                .map_err(|e| errs::Err::with_source(SampleAsyncError::FailToSetValue, e))?;
 
             data_conn
                 .add_force_back_async(async |mut conn| {
@@ -442,11 +431,9 @@ mod test_async {
                     let log = log_opt.unwrap_or("".to_string());
                     let _: Option<()> = conn.set("log_async", log + "LOG2.").await.unwrap();
 
-                    let r: redis::RedisResult<()> = conn.del("sample_force_back_async").await;
-                    match r {
-                        Ok(()) => Ok(()),
-                        Err(e) => Err(errs::Err::with_source("fail to force back", e)),
-                    }
+                    conn.del("sample_force_back_async")
+                        .await
+                        .map_err(|e| errs::Err::with_source("fail to force back", e))
                 })
                 .await;
 
@@ -454,12 +441,9 @@ mod test_async {
             let log = log_opt.unwrap_or("".to_string());
             let _: Option<()> = conn.set("log_async", log + "LOG3.").await.unwrap();
 
-            if let Err(e) = conn
-                .set::<&str, &str, ()>("sample_force_back_async_2", val)
+            conn.set::<&str, &str, ()>("sample_force_back_async_2", val)
                 .await
-            {
-                return Err(errs::Err::with_source(SampleAsyncError::FailToSetValue, e));
-            }
+                .map_err(|e| errs::Err::with_source(SampleAsyncError::FailToSetValue, e))?;
 
             data_conn
                 .add_force_back_async(async |mut conn| {
@@ -467,11 +451,9 @@ mod test_async {
                     let log = log_opt.unwrap_or("".to_string());
                     let _: Option<()> = conn.set("log_async", log + "LOG4.").await.unwrap();
 
-                    let r: redis::RedisResult<()> = conn.del("sample_force_back_async_2").await;
-                    match r {
-                        Ok(()) => Ok(()),
-                        Err(e) => Err(errs::Err::with_source("fail to force back", e)),
-                    }
+                    conn.del("sample_force_back_async_2")
+                        .await
+                        .map_err(|e| errs::Err::with_source("fail to force back", e))
                 })
                 .await;
 
@@ -489,15 +471,11 @@ mod test_async {
                 .add_pre_commit_async(move |mut conn| {
                     let value = val_owned.clone();
                     async move {
-                        if let Err(e) = conn
-                            .set::<&str, &str, ()>("sample_pre_commit_async", &value)
+                        conn.set::<&str, &str, ()>("sample_pre_commit_async", &value)
                             .await
-                        {
-                            return Err(errs::Err::with_source(
-                                SampleAsyncError::FailToSetValue,
-                                e,
-                            ));
-                        }
+                            .map_err(|e| {
+                                errs::Err::with_source(SampleAsyncError::FailToSetValue, e)
+                            })?;
                         Ok(())
                     }
                 })
@@ -517,15 +495,11 @@ mod test_async {
                 .add_post_commit_async(move |mut conn| {
                     let value = val_owned.clone();
                     async move {
-                        if let Err(e) = conn
-                            .set::<&str, &str, ()>("sample_post_commit_async", &value)
+                        conn.set::<&str, &str, ()>("sample_post_commit_async", &value)
                             .await
-                        {
-                            return Err(errs::Err::with_source(
-                                SampleAsyncError::FailToSetValue,
-                                e,
-                            ));
-                        }
+                            .map_err(|e| {
+                                errs::Err::with_source(SampleAsyncError::FailToSetValue, e)
+                            })?;
                         Ok(())
                     }
                 })

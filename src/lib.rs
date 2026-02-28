@@ -95,14 +95,12 @@
 //!         let data_conn = self.get_data_conn::<RedisDataConn>("redis")?;
 //!         let mut redis_conn = data_conn.get_connection()?;
 //!
-//!         if let Err(e) = redis_conn.set("value", value) {
-//!             return Err(errs::Err::with_source("fail to set value", e));
-//!         }
+//!         redis_conn.set("value", value)
+//!             .map_err(|e| errs::Err::with_source("fail to set value", e))?;
 //!
 //!         data_conn.add_force_back(|redis_conn| {
-//!             if let Err(e) = redis_conn.del("value") {
-//!                 return Err(errs::Err::with_source("fail to force back value", e));
-//!             }
+//!             redis_conn.del("value")
+//!                 .map_err(|e| errs::Err::with_source("fail to force back value", e))?;
 //!             Ok(())
 //!         });
 //!         Ok(())
@@ -134,9 +132,8 @@
 //!     fn data_access_method_with_add_pre_commit(&mut self, value: i64) -> errs::Result<()> {
 //!         let data_conn = self.get_data_conn::<RedisDataConn>("redis")?;
 //!         data_conn.add_pre_commit(move |redis_conn| {
-//!             if let Err(e) = redis_conn.set("value", value) {
-//!                 return Err(errs::Err::with_source("fail to set value", e));
-//!             }
+//!             redis_conn.set("value", value)
+//!                 .map_err(|e| errs::Err::with_source("fail to set value", e))?;
 //!             Ok(())
 //!         });
 //!         Ok(())
@@ -172,9 +169,8 @@
 //!     fn data_access_method_with_add_pre_commit(&mut self, value: i64) -> errs::Result<()> {
 //!         let data_conn = self.get_data_conn::<RedisDataConn>("redis")?;
 //!         data_conn.add_post_commit(move |redis_conn| {
-//!             if let Err(e) = redis_conn.set("value", value) {
-//!                 return Err(errs::Err::with_source("fail to set value", e));
-//!             }
+//!             redis_conn.set("value", value)
+//!                 .map_err(|e| errs::Err::with_source("fail to set value", e))?;
 //!             Ok(())
 //!         });
 //!         Ok(())
