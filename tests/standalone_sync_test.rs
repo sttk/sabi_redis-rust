@@ -1,10 +1,9 @@
 #[cfg(feature = "standalone-sync")]
 #[cfg(test)]
-mod integration_tests_of_sabi_redis {
-    use errs;
+mod integration_tests_of_standalone_sync {
     use override_macro::{overridable, override_with};
     use redis::TypedCommands;
-    use sabi;
+    use sabi::{uses, DataAcc, DataHub};
     use sabi_redis::{RedisDataConn, RedisDataSrc};
 
     #[overridable]
@@ -14,14 +13,14 @@ mod integration_tests_of_sabi_redis {
     }
 
     #[overridable]
-    trait GettingDataAcc: sabi::DataAcc {
+    trait GettingDataAcc: DataAcc {
         fn get_greeting(&mut self) -> errs::Result<String> {
             Ok("Hello!".to_string())
         }
     }
 
     #[overridable]
-    trait RedisSayingDataAcc: sabi::DataAcc {
+    trait RedisSayingDataAcc: DataAcc {
         fn say_greeting(&mut self, greeting: &str) -> errs::Result<()> {
             let data_conn = self.get_data_conn::<RedisDataConn>("redis")?;
             let mut redis_conn = data_conn.get_connection()?;
@@ -41,11 +40,11 @@ mod integration_tests_of_sabi_redis {
         }
     }
 
-    impl GettingDataAcc for sabi::DataHub {}
-    impl RedisSayingDataAcc for sabi::DataHub {}
+    impl GettingDataAcc for DataHub {}
+    impl RedisSayingDataAcc for DataHub {}
 
     #[override_with(GettingDataAcc, RedisSayingDataAcc)]
-    impl MyData for sabi::DataHub {}
+    impl MyData for DataHub {}
 
     fn my_logic(data: &mut impl MyData) -> errs::Result<()> {
         let greeting = data.get_greeting()?;
@@ -53,13 +52,13 @@ mod integration_tests_of_sabi_redis {
     }
 
     fn my_app() -> errs::Result<()> {
-        let mut data = sabi::DataHub::new();
+        let mut data = DataHub::new();
         data.txn(my_logic)
     }
 
     #[test]
     fn test() -> errs::Result<()> {
-        sabi::uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/10"))?;
+        uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/10"))?;
 
         let _auto_shutdown = sabi::setup()?;
 
