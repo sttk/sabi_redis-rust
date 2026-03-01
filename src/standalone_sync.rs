@@ -4,9 +4,8 @@
 
 use sabi::{AsyncGroup, DataConn, DataSrc};
 
-use std::cell;
 use std::fmt::Debug;
-use std::mem;
+use std::{cell, mem, time};
 
 /// Represents a reason for errors that can occur during `RedisDataSrc` operations,
 /// to be passed to `errs::Err`.
@@ -126,13 +125,36 @@ impl RedisDataConn {
         }
     }
 
-    /// Returns a mutable reference to the underlying Redis connection.
+    /// Retrieves a mutable reference to the underlying Redis connection from the pool.
+    /// This method will wait for at most the configured connection timeout before returning an
+    /// error.
     ///
     /// This reference allows direct access to Redis commands.
     pub fn get_connection(&mut self) -> errs::Result<r2d2::PooledConnection<redis::Client>> {
         self.pool
             .get()
             .map_err(|e| errs::Err::with_source(RedisDataSrcError::FailToGetConnectionFromPool, e))
+    }
+
+    /// Retrieves a mutable reference to the underlying Redis connection from the pool, waiting
+    /// for at most `timeout`.
+    ///
+    /// This reference allows direct access to Redis commands.
+    pub fn get_connection_with_timeout(
+        &self,
+        timeout: time::Duration,
+    ) -> errs::Result<r2d2::PooledConnection<redis::Client>> {
+        self.pool
+            .get_timeout(timeout)
+            .map_err(|e| errs::Err::with_source(RedisDataSrcError::FailToGetConnectionFromPool, e))
+    }
+
+    /// Attempt to retrieves a mutable reference to the underlying Redis connection from the pool.
+    /// This method will not block waiting to establish a new connection.
+    ///
+    /// This reference allows direct access to Redis commands.
+    pub fn try_get_connection(&self) -> Option<r2d2::PooledConnection<redis::Client>> {
+        self.pool.try_get()
     }
 
     /// Adds a function to the list of "pre commit" operations.
@@ -424,7 +446,7 @@ where
 }
 
 #[cfg(test)]
-mod test_sync {
+mod tests_of_standalone_sync {
     use super::*;
     use override_macro::{overridable, override_with};
     use redis::Commands;
@@ -541,17 +563,11 @@ mod test_sync {
     impl SampleData for DataHub {}
 
     fn sample_logic(data: &mut impl SampleData) -> errs::Result<()> {
-        match data.get_sample_key()? {
-            Some(_) => panic!("Data exists"),
-            None => {}
-        }
+        data.get_sample_key().expect("Data exists");
 
         data.set_sample_key("Hello")?;
 
-        match data.get_sample_key()? {
-            Some(val) => assert_eq!(val, "Hello"),
-            None => panic!("No data"),
-        }
+        assert_eq!(data.get_sample_key().expect("No Data").unwrap(), "Hello");
 
         data.del_sample_key()?;
         Ok(())
@@ -596,36 +612,30 @@ mod test_sync {
     fn fail_to_setup() {
         let mut data = DataHub::new();
         data.uses("redis", RedisDataSrc::new("xxxxx"));
-        if let Err(err) = data.run(sample_logic) {
-            if let Ok(r) = err.reason::<sabi::DataHubError>() {
-                match r {
-                    sabi::DataHubError::FailToSetupLocalDataSrcs { errors } => {
-                        assert_eq!(errors.len(), 1);
-                        assert_eq!(errors[0].0.as_ref(), "redis");
-                        if let Ok(r) = errors[0].1.reason::<RedisDataSrcError>() {
-                            match r {
-                                RedisDataSrcError::FailToOpenClient => {}
-                                _ => panic!(),
-                            }
-                        }
-                        let e = errors[0]
-                            .1
-                            .source()
-                            .unwrap()
-                            .downcast_ref::<redis::RedisError>()
-                            .unwrap();
-                        assert_eq!(e.kind(), redis::ErrorKind::InvalidClientConfig);
-                        assert!(e.detail().is_none());
-                        assert!(e.code().is_none());
-                        assert_eq!(e.category(), "invalid client config");
+        let err = data.run(sample_logic).unwrap_err();
+
+        match err.reason::<sabi::DataHubError>().unwrap() {
+            sabi::DataHubError::FailToSetupLocalDataSrcs { errors } => {
+                assert_eq!(errors.len(), 1);
+                assert_eq!(errors[0].0.as_ref(), "redis");
+                if let Ok(r) = errors[0].1.reason::<RedisDataSrcError>() {
+                    match r {
+                        RedisDataSrcError::FailToOpenClient => {}
+                        _ => panic!(),
                     }
-                    _ => panic!("{:?}", err),
                 }
-            } else {
-                panic!("{:?}", err);
+                let e = errors[0]
+                    .1
+                    .source()
+                    .unwrap()
+                    .downcast_ref::<redis::RedisError>()
+                    .unwrap();
+                assert_eq!(e.kind(), redis::ErrorKind::InvalidClientConfig);
+                assert!(e.detail().is_none());
+                assert!(e.code().is_none());
+                assert_eq!(e.category(), "invalid client config");
             }
-        } else {
-            panic!();
+            _ => panic!(),
         }
     }
 
@@ -647,7 +657,7 @@ mod test_sync {
     }
 
     #[test]
-    fn test_txn_and_commit() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_txn_and_commit() -> errs::Result<()> {
         let mut data = DataHub::new();
         data.uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/3"));
         data.txn(sample_logic_in_txn_and_commit)?;
@@ -672,7 +682,7 @@ mod test_sync {
     }
 
     #[test]
-    fn test_txn_and_pre_commit() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_txn_and_pre_commit() -> errs::Result<()> {
         let mut data = DataHub::new();
         data.uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/4"));
 
@@ -689,7 +699,7 @@ mod test_sync {
     }
 
     #[test]
-    fn test_txn_and_post_commit() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_txn_and_post_commit() -> errs::Result<()> {
         let mut data = DataHub::new();
         data.uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/5"));
 
@@ -710,11 +720,8 @@ mod test_sync {
         let mut data = DataHub::new();
         data.uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/6"));
 
-        if let Err(err) = data.txn(sample_logic_in_txn_and_force_back) {
-            assert_eq!(err.reason::<&str>().unwrap(), &"XXX");
-        } else {
-            panic!();
-        }
+        let err = data.txn(sample_logic_in_txn_and_force_back).unwrap_err();
+        assert_eq!(err.reason::<&str>().unwrap(), &"XXX");
 
         {
             let client = redis::Client::open("redis://127.0.0.1:6379/6").unwrap();

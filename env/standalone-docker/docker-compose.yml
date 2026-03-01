@@ -1,0 +1,6 @@
+services:
+  redis_standalone:
+    container_name: redis_standalone
+    image: redis:8
+    ports:
+      - "6379:6379"

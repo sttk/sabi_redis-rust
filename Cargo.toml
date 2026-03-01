@@ -25,10 +25,12 @@ override_macro = "0.1"
 
 [features]
 default = ["standalone-sync"]
+
 standalone-sync = ["dep:r2d2", "redis/r2d2"]
 standalone-async = ["dep:deadpool-redis", "redis/tokio-comp", "sabi-rust/tokio", "dep:tokio", "tokio/full"]
-standalone-full = ["standalone-sync", "standalone-async"]
-full = ["standalone-full"]
+
+sentinel-sync = ["dep:r2d2", "redis/r2d2", "redis/sentinel"]
+sentinel-async = ["dep:deadpool-redis", "redis/tokio-comp", "redis/sentinel", "sabi-rust/tokio", "dep:tokio", "tokio/full"]
 
 [package.metadata.docs.rs]
 all-features = true

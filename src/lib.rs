@@ -62,6 +62,43 @@
 //! }
 //! ```
 //!
+//! ### Sentinel configuration and synchronous commands
+//!
+//! `RedisSentinelDataSrc` and `RedisSentinelDataConn` are designed for a Redis Sentinel setup
+//! and provide synchronous connections for processing Redis commands.
+//!
+//! This type requires the `"sentinel-sync"` feature to be enabled.
+//!
+//! #### Example
+//!
+//! ```rust
+//! use errs;
+//! use sabi;
+//! #[cfg(feature = "sentinel-sync")]
+//! use sabi_redis::{RedisSentinelDataSrc, RedisSentinelDataConn};
+//!
+//! fn main() -> errs::Result<()> {
+//!     #[cfg(feature = "sentinel-sync")]
+//!     sabi::uses(
+//!         "redis",
+//!         RedisSentinelDataSrc::new(
+//!             vec![
+//!                 "redis://127.0.0.1:26479",
+//!                 "redis://127.0.0.1:26480",
+//!                 "redis://127.0.0.1:26481",
+//!             ],
+//!             "mymaster",
+//!         ),
+//!     );
+//!
+//!     #[cfg(feature = "sentinel-sync")]
+//!     let _auto_shutdown = sabi::setup()?;
+//!
+//!     // ...
+//!     Ok(())
+//! }
+//! ```
+//!
 //! ## Transaction Rollback Alternative
 //!
 //! Redis does not support transactions like relational databases (RDBs) and lacks the ability to
@@ -193,3 +230,17 @@ mod standalone_async;
 #[cfg(feature = "standalone-async")]
 #[cfg_attr(docsrs, doc(cfg(feature = "standalone-async")))]
 pub use standalone_async::{RedisAsyncDataConn, RedisAsyncDataSrc, RedisAsyncDataSrcError};
+
+#[cfg(feature = "sentinel-sync")]
+mod sentinel_sync;
+
+#[cfg(feature = "sentinel-sync")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sentinel-sync")))]
+pub use sentinel_sync::{RedisSentinelDataConn, RedisSentinelDataSrc, RedisSentinelDataSrcError};
+
+//#[cfg(feature = "sentinel-async")]
+//mod sentinel_async;
+
+//#[cfg(feature = "sentinel-async")]
+//#[cfg_attr(docsrs, doc(cfg(feature = "sentinel-async")))]
+//pub use sentinel_sync::{RedisSentinelAsyncDataConn, RedisSentinelAsyncDataSrc, RedisSentinelAsyncDataSrcError};

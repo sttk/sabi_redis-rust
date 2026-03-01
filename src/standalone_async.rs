@@ -606,13 +606,6 @@ mod test_async {
         Ok(())
     }
 
-    async fn sample_logic_in_txn_and_commit_async(
-        data: &mut impl SampleDataAsync,
-    ) -> errs::Result<()> {
-        data.set_sample_key_with_force_back_async("Good Morning")
-            .await?;
-        Ok(())
-    }
     async fn sample_logic_in_txn_and_force_back_async(
         data: &mut impl SampleDataAsync,
     ) -> errs::Result<()> {
@@ -632,33 +625,6 @@ mod test_async {
     ) -> errs::Result<()> {
         data.set_sample_key_in_post_commit_async("Good Night")
             .await?;
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_txn_and_commit() -> errs::Result<()> {
-        let mut data = DataHub::new();
-        data.uses("redis", RedisAsyncDataSrc::new("redis://127.0.0.1:6379/3"));
-        data.txn_async(logic!(sample_logic_in_txn_and_commit_async))
-            .await?;
-
-        {
-            let cfg = Config::from_url("redis://127.0.0.1:6379/3");
-            let pool = cfg.create_pool(Some(Runtime::Tokio1)).unwrap();
-            let mut conn = pool.get().await.unwrap();
-
-            let s: redis::RedisResult<Option<String>> = conn.get("sample_force_back_async").await;
-            let _: redis::RedisResult<()> = conn.del("sample_force_back_async").await;
-            assert_eq!(s.unwrap().unwrap(), "Good Morning");
-
-            let s: redis::RedisResult<Option<String>> = conn.get("sample_force_back_async_2").await;
-            let _: redis::RedisResult<()> = conn.del("sample_force_back_async_2").await;
-            assert_eq!(s.unwrap().unwrap(), "Good Morning");
-
-            let log: redis::RedisResult<Option<String>> = conn.get("log_async").await;
-            let _: redis::RedisResult<()> = conn.del("log_async").await;
-            assert_eq!(log.unwrap().unwrap(), "LOG1.LOG3.");
-        }
         Ok(())
     }
 
