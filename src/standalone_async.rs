@@ -6,7 +6,7 @@ use deadpool_redis::{Config, Connection, Pool, PoolConfig, Runtime};
 use sabi::tokio::{AsyncGroup, DataConn, DataSrc};
 
 use std::future::Future;
-use std::{cell, fmt, mem, pin};
+use std::{fmt, mem, pin};
 
 /// Errors that can occur when using `RedisAsyncDataSrc` or `RedisAsyncDataConn`.
 #[derive(Debug)]
@@ -245,9 +245,15 @@ pub struct RedisAsyncDataSrc<T>
 where
     T: redis::IntoConnectionInfo + Sized + fmt::Debug,
 {
-    pool: cell::OnceCell<Pool>,
-    conn_info: Option<T>,
-    pool_config: Option<PoolConfig>,
+    pool: Option<RedisPool<T>>,
+}
+
+enum RedisPool<T>
+where
+    T: redis::IntoConnectionInfo + Sized + fmt::Debug,
+{
+    Object(Pool),
+    Config(T, PoolConfig),
 }
 
 impl<T> RedisAsyncDataSrc<T>
@@ -266,9 +272,7 @@ where
     /// A new `RedisAsyncDataSrc` instance.
     pub fn new(conn_info: T) -> Self {
         Self {
-            pool: cell::OnceCell::new(),
-            conn_info: Some(conn_info),
-            pool_config: Some(PoolConfig::default()),
+            pool: Some(RedisPool::Config(conn_info, PoolConfig::default())),
         }
     }
 
@@ -285,9 +289,7 @@ where
     /// A new `RedisAsyncDataSrc` instance.
     pub fn with_pool_config(conn_info: T, pool_config: PoolConfig) -> Self {
         Self {
-            pool: cell::OnceCell::new(),
-            conn_info: Some(conn_info),
-            pool_config: Some(pool_config),
+            pool: Some(RedisPool::Config(conn_info, pool_config)),
         }
     }
 }
@@ -307,35 +309,30 @@ where
     /// - `Err(errs::Err)` if the data source is already set up, or if there's a failure
     ///   to convert connection info or build the `deadpool_redis` pool.
     async fn setup_async(&mut self, _ag: &mut AsyncGroup) -> errs::Result<()> {
-        let conn_info_opt = mem::take(&mut self.conn_info);
-        let pool_config_opt = mem::take(&mut self.pool_config);
-
-        let (conn_info, pool_config) = conn_info_opt
-            .zip(pool_config_opt)
-            .ok_or_else(|| errs::Err::new(RedisAsyncDataSrcError::AlreadySetup))?;
-
-        let ci = conn_info.into_connection_info().map_err(|e| {
-            errs::Err::with_source(RedisAsyncDataSrcError::FailToConvertConnectionInfo, e)
-        })?;
-
-        let mut cfg = Config::from_connection_info(ci);
-        cfg.pool.replace(pool_config);
-        let pool = cfg
-            .create_pool(Some(Runtime::Tokio1))
-            .map_err(|e| errs::Err::with_source(RedisAsyncDataSrcError::FailToBuildPool, e))?;
-
-        if self.pool.set(pool).is_err() {
-            Err(errs::Err::new(RedisAsyncDataSrcError::AlreadySetup))
-        } else {
-            Ok(())
+        let pool_opt = mem::take(&mut self.pool);
+        let pool = pool_opt.ok_or_else(|| errs::Err::new(RedisAsyncDataSrcError::AlreadySetup))?;
+        match pool {
+            RedisPool::Config(conn_info, pool_config) => {
+                let ci = conn_info.into_connection_info().map_err(|e| {
+                    errs::Err::with_source(RedisAsyncDataSrcError::FailToConvertConnectionInfo, e)
+                })?;
+                let mut cfg = Config::from_connection_info(ci);
+                cfg.pool.replace(pool_config);
+                let pool = cfg.create_pool(Some(Runtime::Tokio1)).map_err(|e| {
+                    errs::Err::with_source(RedisAsyncDataSrcError::FailToBuildPool, e)
+                })?;
+                self.pool = Some(RedisPool::Object(pool));
+                Ok(())
+            }
+            _ => Err(errs::Err::new(RedisAsyncDataSrcError::AlreadySetup)),
         }
     }
 
     /// Closes the underlying Redis connection pool.
     /// This method is called to gracefully shut down the data source and release all connections.
     fn close(&mut self) {
-        if let Some(pool) = self.pool.get() {
-            pool.close();
+        if let Some(RedisPool::Object(pool)) = self.pool.as_mut() {
+            pool.close()
         }
     }
 
@@ -346,10 +343,13 @@ where
     /// - `Ok(Box<RedisAsyncDataConn>)` containing a new data connection.
     /// - `Err(errs::Err)` if the data source has not been set up yet.
     async fn create_data_conn_async(&mut self) -> errs::Result<Box<RedisAsyncDataConn>> {
-        if let Some(pool) = self.pool.get() {
-            Ok(Box::new(RedisAsyncDataConn::new(pool.clone())))
-        } else {
-            Err(errs::Err::new(RedisAsyncDataSrcError::NotSetupYet))
+        let pool = self
+            .pool
+            .as_mut()
+            .ok_or_else(|| errs::Err::new(RedisAsyncDataSrcError::NotSetupYet))?;
+        match pool {
+            RedisPool::Object(pool) => Ok(Box::new(RedisAsyncDataConn::new(pool.clone()))),
+            _ => Err(errs::Err::new(RedisAsyncDataSrcError::NotSetupYet)),
         }
     }
 }
