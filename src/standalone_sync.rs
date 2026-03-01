@@ -4,7 +4,6 @@
 
 use sabi::{AsyncGroup, DataConn, DataSrc};
 
-use std::cell;
 use std::fmt::Debug;
 use std::mem;
 
@@ -339,9 +338,15 @@ pub struct RedisDataSrc<T>
 where
     T: redis::IntoConnectionInfo + Sized + Debug,
 {
-    pool: cell::OnceCell<r2d2::Pool<redis::Client>>,
-    conn_info: Option<T>,
-    pool_builder: Option<r2d2::Builder<redis::Client>>,
+    pool: Option<RedisPool<T>>,
+}
+
+enum RedisPool<T>
+where
+    T: redis::IntoConnectionInfo + Sized + Debug,
+{
+    Object(r2d2::Pool<redis::Client>),
+    Config(T, r2d2::Builder<redis::Client>),
 }
 
 impl<T> RedisDataSrc<T>
@@ -354,9 +359,7 @@ where
     /// until the `setup` method is called.
     pub fn new(conn_info: T) -> Self {
         Self {
-            pool: cell::OnceCell::new(),
-            conn_info: Some(conn_info),
-            pool_builder: Some(r2d2::Pool::builder()),
+            pool: Some(RedisPool::Config(conn_info, r2d2::Pool::builder())),
         }
     }
 
@@ -366,9 +369,7 @@ where
     /// until the `setup` method is called.
     pub fn with_pool_builder(conn_info: T, pool_builder: r2d2::Builder<redis::Client>) -> Self {
         Self {
-            pool: cell::OnceCell::new(),
-            conn_info: Some(conn_info),
-            pool_builder: Some(pool_builder),
+            pool: Some(RedisPool::Config(conn_info, pool_builder)),
         }
     }
 }
@@ -383,24 +384,21 @@ where
     /// It must be called before `create_data_conn`. It will return an error if
     /// called more than once on the same instance.
     fn setup(&mut self, _ag: &mut AsyncGroup) -> errs::Result<()> {
-        let conn_info_opt = mem::take(&mut self.conn_info);
-        let pool_builder_opt = mem::take(&mut self.pool_builder);
+        let pool_opt = mem::take(&mut self.pool);
+        let pool = pool_opt.ok_or_else(|| errs::Err::new(RedisDataSrcError::AlreadySetup))?;
+        match pool {
+            RedisPool::Config(conn_info, pool_builder) => {
+                let client = redis::Client::open(conn_info)
+                    .map_err(|e| errs::Err::with_source(RedisDataSrcError::FailToOpenClient, e))?;
 
-        let (conn_info, pool_builder) = conn_info_opt
-            .zip(pool_builder_opt)
-            .ok_or_else(|| errs::Err::new(RedisDataSrcError::AlreadySetup))?;
+                let pool = pool_builder
+                    .build(client)
+                    .map_err(|e| errs::Err::with_source(RedisDataSrcError::FailToBuildPool, e))?;
 
-        let client = redis::Client::open(conn_info)
-            .map_err(|e| errs::Err::with_source(RedisDataSrcError::FailToOpenClient, e))?;
-
-        let pool = pool_builder
-            .build(client)
-            .map_err(|e| errs::Err::with_source(RedisDataSrcError::FailToBuildPool, e))?;
-
-        if self.pool.set(pool).is_err() {
-            Err(errs::Err::new(RedisDataSrcError::AlreadySetup))
-        } else {
-            Ok(())
+                self.pool = Some(RedisPool::Object(pool));
+                Ok(())
+            }
+            _ => Err(errs::Err::new(RedisDataSrcError::AlreadySetup)),
         }
     }
 
@@ -415,10 +413,13 @@ where
     /// This method retrieves a connection from the internal pool. It will return a
     /// `NotSetupYet` error if the data source has not been set up.
     fn create_data_conn(&mut self) -> errs::Result<Box<RedisDataConn>> {
-        if let Some(pool) = self.pool.get() {
-            Ok(Box::new(RedisDataConn::new(pool.clone())))
-        } else {
-            Err(errs::Err::new(RedisDataSrcError::NotSetupYet))
+        let pool = self
+            .pool
+            .as_mut()
+            .ok_or_else(|| errs::Err::new(RedisDataSrcError::NotSetupYet))?;
+        match pool {
+            RedisPool::Object(pool) => Ok(Box::new(RedisDataConn::new(pool.clone()))),
+            _ => Err(errs::Err::new(RedisDataSrcError::NotSetupYet)),
         }
     }
 }
