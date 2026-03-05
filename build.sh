@@ -36,8 +36,8 @@ test() {
   cargo test --features standalone-async --no-default-features -- --show-output
   errcheck $?
 
-  echo "### features: standalone-full"
-  cargo test --features standalone-full -- --show-output
+  echo "### features: sentinel-sync"
+  cargo test --features sentinel-sync --no-default-features -- --show-output
   errcheck $?
 }
 
