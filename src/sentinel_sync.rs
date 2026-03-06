@@ -239,12 +239,12 @@ where
     /// The connection information for Sentinel nodes and the Redis service name are stored,
     /// but the connection pool is not built until the `setup` method is called.
     ///
-    /// - `params`: A vector of connection information for the Sentinel nodes (e.g., "redis://127.0.0.1:26379").
+    /// - `sentinels`: A vector of connection information for the Sentinel nodes (e.g., "redis://127.0.0.1:26379").
     /// - `service_name`: The name of the Redis master service to connect to (as configured in Sentinel).
-    pub fn new(params: Vec<T>, service_name: &str) -> Self {
+    pub fn new(sentinels: Vec<T>, service_name: &str) -> Self {
         Self {
             pool: Some(RedisPool::Sentinel(
-                params,
+                sentinels,
                 service_name.to_string(),
                 None,
                 r2d2::Pool::builder(),
@@ -257,17 +257,17 @@ where
     /// This allows configuring specific details for connecting to the Redis master,
     /// such as database selection or password.
     ///
-    /// - `params`: A vector of connection information for the Sentinel nodes.
+    /// - `sentinels`: A vector of connection information for the Sentinel nodes.
     /// - `service_name`: The name of the Redis master service.
     /// - `info`: `SentinelNodeConnectionInfo` to customize the connection to the Redis master.
     pub fn with_node_connection_info(
-        params: Vec<T>,
+        sentinels: Vec<T>,
         service_name: &str,
         info: SentinelNodeConnectionInfo,
     ) -> Self {
         Self {
             pool: Some(RedisPool::Sentinel(
-                params,
+                sentinels,
                 service_name.to_string(),
                 Some(info),
                 r2d2::Pool::builder(),
@@ -281,19 +281,19 @@ where
     /// This provides fine-grained control over both the Redis master connection details
     /// and the connection pool's configuration.
     ///
-    /// - `params`: A vector of connection information for the Sentinel nodes.
+    /// - `sentinels`: A vector of connection information for the Sentinel nodes.
     /// - `service_name`: The name of the Redis master service.
     /// - `info`: `SentinelNodeConnectionInfo` to customize the connection to the Redis master.
     /// - `builder`: A custom `r2d2::Pool::builder` to configure the connection pool.
     pub fn with_node_connection_info_and_pool_builder(
-        params: Vec<T>,
+        sentinels: Vec<T>,
         service_name: &str,
         info: SentinelNodeConnectionInfo,
         builder: r2d2::Builder<LockedSentinelClient>,
     ) -> Self {
         Self {
             pool: Some(RedisPool::Sentinel(
-                params,
+                sentinels,
                 service_name.to_string(),
                 Some(info),
                 builder,
@@ -346,9 +346,9 @@ where
         let pool =
             pool_opt.ok_or_else(|| errs::Err::new(RedisSentinelDataSrcError::AlreadySetup))?;
         match pool {
-            RedisPool::Sentinel(params, service_name, node_conn_info_opt, pool_builder) => {
+            RedisPool::Sentinel(sentinels, service_name, node_conn_info_opt, pool_builder) => {
                 let client = SentinelClient::build(
-                    params,
+                    sentinels,
                     service_name,
                     node_conn_info_opt,
                     SentinelServerType::Master,
@@ -513,7 +513,7 @@ mod tests_of_sentinel_sync {
     impl RedisSentinelSampleDataAcc for DataHub {}
 
     #[overridable]
-    trait SampleSentinelData {
+    trait SampleDataSentinel {
         fn get_sample_key(&mut self) -> errs::Result<Option<String>>;
         fn set_sample_key(&mut self, value: &str) -> errs::Result<()>;
         fn del_sample_key(&mut self) -> errs::Result<()>;
@@ -522,9 +522,9 @@ mod tests_of_sentinel_sync {
         fn set_sample_key_in_post_commit(&mut self, val: &str) -> errs::Result<()>;
     }
     #[override_with(RedisSentinelSampleDataAcc)]
-    impl SampleSentinelData for DataHub {}
+    impl SampleDataSentinel for DataHub {}
 
-    fn sample_logic(data: &mut impl SampleSentinelData) -> errs::Result<()> {
+    fn sample_logic(data: &mut impl SampleDataSentinel) -> errs::Result<()> {
         data.get_sample_key().expect("Data exists");
         data.set_sample_key("Hello")?;
         data.del_sample_key()?;
@@ -573,7 +573,7 @@ mod tests_of_sentinel_sync {
     }
 
     #[test]
-    fn ok_with_node_connectin_info_and_pool_builder() -> errs::Result<()> {
+    fn ok_with_node_connection_info_and_pool_builder() -> errs::Result<()> {
         let redis_connection_info = RedisConnectionInfo::default().set_db(1);
         let sentinel_node_connection_info =
             SentinelNodeConnectionInfo::default().set_redis_connection_info(redis_connection_info);
@@ -695,15 +695,15 @@ mod tests_of_sentinel_sync {
         }
     }
 
-    fn sample_logic_in_txn_and_force_back(data: &mut impl SampleSentinelData) -> errs::Result<()> {
+    fn sample_logic_in_txn_and_force_back(data: &mut impl SampleDataSentinel) -> errs::Result<()> {
         data.set_sample_key_with_force_back("Good Afternoon")?;
         Err(errs::Err::new("XXX"))
     }
-    fn sample_logic_in_txn_and_pre_commit(data: &mut impl SampleSentinelData) -> errs::Result<()> {
+    fn sample_logic_in_txn_and_pre_commit(data: &mut impl SampleDataSentinel) -> errs::Result<()> {
         data.set_sample_key_in_pre_commit("Good Evening")?;
         Ok(())
     }
-    fn sample_logic_in_txn_and_post_commit(data: &mut impl SampleSentinelData) -> errs::Result<()> {
+    fn sample_logic_in_txn_and_post_commit(data: &mut impl SampleDataSentinel) -> errs::Result<()> {
         data.set_sample_key_in_post_commit("Good Night")?;
         Ok(())
     }

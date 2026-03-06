@@ -39,6 +39,10 @@ test() {
   echo "### features: sentinel-sync"
   cargo test --features sentinel-sync --no-default-features -- --show-output
   errcheck $?
+
+  echo "### features: sentinel-async"
+  cargo test --features sentinel-async --no-default-features -- --show-output
+  errcheck $?
 }
 
 unit() {
