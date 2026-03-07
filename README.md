@@ -261,20 +261,20 @@ This crate supports Rust 1.87.0 or later.
 Compatibility Check #1: Rust 1.75.0
   [FAIL]   Is incompatible
 
-Compatibility Check #2: Rust 1.84.1
+Compatibility Check #2: Rust 1.85.1
   [FAIL]   Is incompatible
 
-Compatibility Check #3: Rust 1.89.0
+Compatibility Check #3: Rust 1.90.0
   [OK]     Is compatible
 
-Compatibility Check #4: Rust 1.86.0
+Compatibility Check #4: Rust 1.87.0
+  [OK]     Is compatible
+
+Compatibility Check #5: Rust 1.86.0
   [FAIL]   Is incompatible
-
-Compatibility Check #5: Rust 1.87.0
-  [OK]     Is compatible
 
 Result:
-   Considered (min … max):   Rust 1.56.1 … Rust 1.93.1
+   Considered (min … max):   Rust 1.56.1 … Rust 1.94.0
    Search method:            bisect
    MSRV:                     1.87.0
    Target:                   x86_64-apple-darwin
