@@ -10,6 +10,10 @@ your development process more efficient
 synchronous connections for processing Redis commands. Additionally, `RedisAsyncDataSrc` and
 `RedisAsyncDataConn` are available for asynchronous command processing.
 
+For Redis Sentinel configurations, `RedisSentinelDataSrc` and `RedisSentinelDataConn` provide
+synchronous connections, while `RedisSentinelAsyncDataSrc` and `RedisSentinelAsyncDataConn`
+provide asynchronous connections.
+
 Unlike relational databases, Redis does not support data rollbacks. This can lead to data
 inconsistency if a transaction involving both Redis and another database fails mid-process.
 To address this, `sabi_redis` offers three unique features to help developers manage Redis updates
@@ -23,8 +27,14 @@ In Cargo.toml, write this crate as a dependency:
 [dependencies]
 sabi_redis = "0.2.0" # `standalone-sync` feature is enabled by default.
 
-# If you want to use the `standalone-async` feature (without `standalone-sync`):
+# If you want to use the `standalone-async` feature:
 # sabi_redis = { version = "0.2.0", default-features = false, features = ["standalone-async"] }
+
+# If you want to use the `sentinel-sync` feature:
+# sabi_redis = { version = "0.2.0", default-features = false, features = ["sentinel-sync"] }
+
+# If you want to use the `sentinel-async` feature:
+# sabi_redis = { version = "0.2.0", default-features = false, features = ["sentinel-async"] }
 ```
 
 ## Usage
@@ -185,6 +195,60 @@ impl RedisSayingDataAcc for sabi::tokio::DataHub {}
 impl MyData for sabi::tokio::DataHub {}
 ```
 
+### For Sentinel Configuration And Synchronous Commands
+> The `sentinel-sync` feature is required for this functionality.
+
+```rust
+use errs;
+use sabi::{uses, setup};
+use sabi_redis::RedisSentinelDataSrc;
+
+fn main() -> Result<(), errs::Err> {
+    uses(
+        "redis",
+        RedisSentinelDataSrc::new(
+            vec![
+                "redis://127.0.0.1:26479",
+                "redis://127.0.0.1:26480",
+                "redis://127.0.0.1:26481",
+            ],
+            "mymaster",
+        ),
+    );
+
+    let _auto_shutdown = setup()?;
+    // ...
+    Ok(())
+}
+```
+
+### For Sentinel Configuration And Asynchronous Commands
+> The `sentinel-async` feature is required for this functionality.
+
+```rust
+use errs;
+use sabi::{uses, setup_async};
+use sabi_redis::RedisSentinelAsyncDataSrc;
+
+#[tokio::main]
+async fn main() -> Result<(), errs::Err> {
+    uses(
+        "redis",
+        RedisSentinelAsyncDataSrc::new(
+            vec![
+                "redis://127.0.0.1:26479",
+                "redis://127.0.0.1:26480",
+                "redis://127.0.0.1:26481",
+            ],
+            "mymaster",
+        ),
+    );
+
+    let _auto_shutdown = setup_async().await?;
+    // ...
+    Ok(())
+}
+```
 
 ## Supported Rust versions
 
