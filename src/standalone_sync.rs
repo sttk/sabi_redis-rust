@@ -5,7 +5,7 @@
 use sabi::{AsyncGroup, DataConn, DataSrc};
 
 use std::fmt::Debug;
-use std::{cell, mem, time};
+use std::{mem, time};
 
 /// Represents a reason for errors that can occur during `RedisDataSrc` operations,
 /// to be passed to `errs::Err`.
