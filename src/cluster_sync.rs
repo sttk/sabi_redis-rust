@@ -273,6 +273,11 @@ impl RedisClusterDataSrc {
 }
 
 impl DataSrc<RedisClusterDataConn> for RedisClusterDataSrc {
+    /// Sets up the Redis Cluster connection pool.
+    ///
+    /// This method creates a `ClusterClient` and builds an `r2d2::Pool`.
+    /// It must be called before `create_data_conn`. It will return an error if
+    /// called more than once on the same instance.
     fn setup(&mut self, _ag: &mut AsyncGroup) -> errs::Result<()> {
         let pool_opt = mem::take(&mut self.pool);
         let pool =
@@ -294,8 +299,16 @@ impl DataSrc<RedisClusterDataConn> for RedisClusterDataSrc {
         }
     }
 
+    /// Closes the data source.
+    ///
+    /// This method does not perform any action since the connection pool
+    /// will be automatically dropped when the struct goes out of scope.
     fn close(&mut self) {}
 
+    /// Creates a new `RedisClusterDataConn` instance.
+    ///
+    /// This method retrieves a connection from the internal pool. It will return a
+    /// `NotSetupYet` error if the data source has not been set up.
     fn create_data_conn(&mut self) -> errs::Result<Box<RedisClusterDataConn>> {
         let pool = self
             .pool
