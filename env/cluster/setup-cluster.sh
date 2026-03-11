@@ -3,6 +3,11 @@
 cwd=$(cd $(dirname $(which $0)); pwd)
 cd ${cwd}
 
+for port in {7000..7005}; do
+  redis-cli -p ${port} FLUSHALL
+  redis-cli -p ${port} CLUSTER RESET HARD
+done
+
 redis-cli --cluster create \
 127.0.0.1:7000 127.0.0.1:7001 127.0.0.1:7002 \
 127.0.0.1:7003 127.0.0.1:7004 127.0.0.1:7005 \
