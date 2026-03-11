@@ -30,8 +30,6 @@ pub enum RedisSentinelDataSrcError {
     FailToBuildSentinelClient,
     /// Indicates a failure to get a Redis Sentinel connection from the pool.
     FailToGetConnectionFromPool,
-    /// Generic failure reason, used when a more specific error is not available.
-    FailTo,
 }
 
 /// A session-scoped connection to the Redis server managed by Redis Sentinel.

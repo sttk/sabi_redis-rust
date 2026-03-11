@@ -134,6 +134,42 @@
 //! }
 //! ```
 //!
+//! ### Cluster configuration and synchronous commands
+//!
+//! `RedisClusterDataSrc` and `RedisClusterDataConn` are designed for a Redis Cluster setup
+//! and provide synchronous connections for processing Redis commands.
+//!
+//! This type requires the `"cluster-sync"` feature to be enabled.
+//!
+//! #### Example
+//!
+//! ```rust
+//! use errs;
+//! use sabi;
+//! #[cfg(feature = "cluster-sync")]
+//! use sabi_redis::{RedisClusterDataSrc, RedisClusterDataConn};
+//!
+//! fn main() -> errs::Result<()> {
+//!     #[cfg(feature = "cluster-sync")]
+//!     sabi::uses(
+//!         "redis",
+//!         RedisClusterDataSrc::new(
+//!             vec![
+//!                 "redis://127.0.0.1:7000",
+//!                 "redis://127.0.0.1:7001",
+//!                 "redis://127.0.0.1:7002",
+//!             ],
+//!         ),
+//!     );
+//!
+//!     #[cfg(feature = "cluster-sync")]
+//!     let _auto_shutdown = sabi::setup()?;
+//!
+//!     // ...
+//!     Ok(())
+//! }
+//! ```
+//!
 //! ## Transaction Rollback Alternative
 //!
 //! Redis does not support transactions like relational databases (RDBs) and lacks the ability to
@@ -281,3 +317,10 @@ mod sentinel_async;
 pub use sentinel_async::{
     RedisSentinelAsyncDataConn, RedisSentinelAsyncDataSrc, RedisSentinelAsyncDataSrcError,
 };
+
+#[cfg(feature = "cluster-sync")]
+mod cluster_sync;
+
+#[cfg(feature = "cluster-sync")]
+#[cfg_attr(docsrs, doc(cfg(feature = "cluster-sync")))]
+pub use cluster_sync::{RedisClusterDataConn, RedisClusterDataSrc, RedisClusterDataSrcError};

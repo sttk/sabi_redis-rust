@@ -33,6 +33,9 @@ standalone-async = ["dep:deadpool-redis", "redis/tokio-comp", "sabi-rust/tokio",
 sentinel-sync = ["dep:r2d2", "redis/r2d2", "redis/sentinel"]
 sentinel-async = ["deadpool/managed", "deadpool-redis/sentinel", "redis/tokio-comp", "redis/sentinel", "redis/aio", "sabi-rust/tokio", "dep:tokio", "tokio/full"]
 
+cluster-sync = ["dep:r2d2", "redis/r2d2", "redis/cluster"]
+cluster-async = ["deadpool/managed", "deadpool-redis/cluster", "redis/tokio-comp", "redis/cluster", "redis/aio", "sabi-rust/tokio", "dep:tokio", "tokio/full"]
+
 [package.metadata.docs.rs]
 all-features = true
 targets = ["x86_64-unknown-linux-gnu"]
