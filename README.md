@@ -14,6 +14,9 @@ For Redis Sentinel configurations, `RedisSentinelDataSrc` and `RedisSentinelData
 synchronous connections, while `RedisSentinelAsyncDataSrc` and `RedisSentinelAsyncDataConn`
 provide asynchronous connections.
 
+For Redis Cluster configurations, `RedisClusterDataSrc` and `RedisClusterDataConn` provide
+synchronous connections.
+
 Unlike relational databases, Redis does not support data rollbacks. This can lead to data
 inconsistency if a transaction involving both Redis and another database fails mid-process.
 To address this, `sabi_redis` offers three unique features to help developers manage Redis updates
@@ -35,6 +38,9 @@ sabi_redis = "0.3.0" # `standalone-sync` feature is enabled by default.
 
 # If you want to use the `sentinel-async` feature:
 # sabi_redis = { version = "0.3.0", default-features = false, features = ["sentinel-async"] }
+
+# If you want to use the `cluster-sync` feature:
+# sabi_redis = { version = "0.3.0", default-features = false, features = ["cluster-sync"] }
 ```
 
 ## Usage
@@ -245,6 +251,32 @@ async fn main() -> Result<(), errs::Err> {
     );
 
     let _auto_shutdown = setup_async().await?;
+    // ...
+    Ok(())
+}
+```
+
+### For Cluster Configuration And Synchronous Commands
+> The `cluster-sync` feature is required for this functionality.
+
+```rust
+use errs;
+use sabi::{uses, setup};
+use sabi_redis::RedisClusterDataSrc;
+
+fn main() -> Result<(), errs::Err> {
+    uses(
+        "redis",
+        RedisClusterDataSrc::new(
+            vec![
+                "redis://127.0.0.1:7000",
+                "redis://127.0.0.1:7001",
+                "redis://127.0.0.1:7002",
+            ],
+        ),
+    );
+
+    let _auto_shutdown = setup()?;
     // ...
     Ok(())
 }
