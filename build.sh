@@ -28,6 +28,8 @@ compile() {
 }
 
 test() {
+  ulimit -n 8192
+
   echo "### features: default (= standalone-sync)"
   cargo test -- --show-output
   errcheck $?
@@ -42,6 +44,14 @@ test() {
 
   echo "### features: sentinel-async"
   cargo test --features sentinel-async --no-default-features -- --show-output
+  errcheck $?
+
+  echo "### features: cluster-sync"
+  cargo test --features cluster-sync --no-default-features -- --show-output
+  errcheck $?
+
+  echo "### features: cluster-async"
+  cargo test --features cluster-async --no-default-features -- --show-output
   errcheck $?
 }
 
