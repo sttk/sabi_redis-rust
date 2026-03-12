@@ -3,4 +3,6 @@
 cwd=$(cd $(dirname $(which $0)); pwd)
 cd ${cwd}
 
-redis-server ./7001/redis.conf &
+ulimit -n 8192
+
+redis-server ./7001/redis.conf
