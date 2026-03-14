@@ -2,14 +2,11 @@
 // This program is free software under MIT License.
 // See the file LICENSE in this distribution for more details.
 
-use deadpool_redis::sentinel::{
-    Config, Connection, Pool, PoolConfig, Runtime, SentinelNodeConnectionInfo, SentinelServerType,
-};
-use deadpool_redis::ConnectionInfo;
+use deadpool_redis::sentinel::{Config, Connection, Pool, PoolConfig, Runtime, SentinelServerType};
 use sabi::tokio::{AsyncGroup, DataConn, DataSrc};
 
 use std::future::Future;
-use std::{fmt, mem, pin};
+use std::{mem, pin};
 
 /// Errors that can occur when using `RedisSentinelAsyncDataSrc` or `RedisSentinelAsyncDataConn`.
 #[derive(Debug)]
@@ -20,10 +17,6 @@ pub enum RedisSentinelAsyncDataSrcError {
     /// Indicates that an attempt was made to set up `RedisSentinelAsyncDataSrc` when it was already set up,
     /// or to set the internal pool when it was already set.
     AlreadySetup,
-
-    /// Indicates a failure to convert the `redis::ConnectionInfo` into
-    /// `deadpool_redis::ConnectionInfo`.
-    FailToConvertConnectionInfo,
 
     /// Indicates a failure to build the Redis connection pool.
     FailToBuildPool,
@@ -243,113 +236,74 @@ impl DataConn for RedisSentinelAsyncDataConn {
     }
 }
 
-/// `RedisSentinelAsyncDataSrc` serves as an asynchronous data source for Redis Sentinel,
-/// implementing the `DataSrc` trait from the `sabi::tokio` library. It manages the
-/// creation and lifecycle of a `deadpool_redis` connection pool configured for Sentinel.
+/// Manages an asynchronous connection pool for a Redis data source managed by Redis Sentinel.
 ///
-/// `T` is a type that can be converted into `redis::ConnectionInfo`.
-pub struct RedisSentinelAsyncDataSrc<T>
-where
-    T: redis::IntoConnectionInfo,
-{
-    pool: Option<RedisPool<T>>,
+/// This struct is responsible for setting up the Redis Sentinel connection pool
+/// using `deadpool_redis` and creating new `RedisSentinelAsyncDataConn` instances from the pool.
+///
+/// `RedisSentinelAsyncDataSrc` implements the `DataSrc` trait from `sabi::tokio`, allowing it to be
+/// used within an asynchronous `DataHub`.
+pub struct RedisSentinelAsyncDataSrc {
+    pool: Option<RedisPool>,
 }
 
-enum RedisPool<T>
-where
-    T: redis::IntoConnectionInfo,
-{
+enum RedisPool {
     Object(Pool),
-    Config(
-        Vec<T>,
-        String,
-        Option<SentinelNodeConnectionInfo>,
-        Option<PoolConfig>,
-    ),
+    Config(Box<Config>),
 }
 
-impl<T> RedisSentinelAsyncDataSrc<T>
-where
-    T: redis::IntoConnectionInfo + Sized + fmt::Debug,
-{
-    /// Creates a new `RedisSentinelAsyncDataSrc` with the specified sentinel URLs and master name.
+impl RedisSentinelAsyncDataSrc {
+    /// Creates a new `RedisSentinelAsyncDataSrc` instance with the specified Sentinel addresses
+    /// and master name.
     ///
-    /// The actual connection pool is built during the `setup_async` call.
-    ///
-    /// # Arguments
-    /// - `sentinels`: A list of sentinel node connection info (e.g., URL strings).
-    /// - `master_name`: The name of the Redis master group.
-    ///
-    /// # Returns
-    /// A new `RedisSentinelAsyncDataSrc` instance.
-    pub fn new(sentinels: Vec<T>, master_name: impl AsRef<str>) -> Self {
+    /// The `addrs` parameter is a list of Sentinel connection strings, and `master_name` is the
+    /// name of the master group (e.g., "mymaster").
+    pub fn new(addrs: Vec<impl AsRef<str>>, master_name: impl AsRef<str>) -> Self {
+        let urls = addrs.into_iter().map(|s| s.as_ref().to_string()).collect();
         Self {
-            pool: Some(RedisPool::Config(
-                sentinels,
-                master_name.as_ref().to_string(),
-                None,
-                None,
-            )),
+            pool: Some(RedisPool::Config(Box::new(Config {
+                urls: Some(urls),
+                server_type: SentinelServerType::Master,
+                master_name: master_name.as_ref().to_string(),
+                connections: None,
+                node_connection_info: None,
+                pool: None,
+            }))),
         }
     }
 
-    /// Creates a new `RedisSentinelAsyncDataSrc` with the specified sentinel URLs, master name,
-    /// and node connection information.
+    /// Creates a new `RedisSentinelAsyncDataSrc` instance with the specified Sentinel addresses,
+    /// master name, and custom pool configuration.
     ///
-    /// # Arguments
-    /// - `sentinels`: A list of sentinel node connection info.
-    /// - `master_name`: The name of the Redis master group.
-    /// - `info`: Connection information for the nodes managed by the sentinel.
-    ///
-    /// # Returns
-    /// A new `RedisSentinelAsyncDataSrc` instance.
-    pub fn with_node_connection_info(
-        sentinels: Vec<T>,
+    /// This allows for fine-tuning the connection pool settings.
+    pub fn with_addrs_and_master_name_and_pool_config(
+        addrs: Vec<impl AsRef<str>>,
         master_name: impl AsRef<str>,
-        info: SentinelNodeConnectionInfo,
-    ) -> Self {
-        Self {
-            pool: Some(RedisPool::Config(
-                sentinels,
-                master_name.as_ref().to_string(),
-                Some(info),
-                None,
-            )),
-        }
-    }
-
-    /// Creates a new `RedisSentinelAsyncDataSrc` with the specified sentinel URLs, master name,
-    /// node connection information, and pool configuration.
-    ///
-    /// # Arguments
-    /// - `sentinels`: A list of sentinel node connection info.
-    /// - `master_name`: The name of the Redis master group.
-    /// - `info`: Connection information for the nodes managed by the sentinel.
-    /// - `pool_config`: Custom configuration for the connection pool.
-    ///
-    /// # Returns
-    /// A new `RedisSentinelAsyncDataSrc` instance.
-    pub fn with_node_connection_info_and_pool_config(
-        sentinels: Vec<T>,
-        master_name: impl AsRef<str>,
-        info: SentinelNodeConnectionInfo,
         pool_config: PoolConfig,
     ) -> Self {
+        let urls = addrs.into_iter().map(|s| s.as_ref().to_string()).collect();
         Self {
-            pool: Some(RedisPool::Config(
-                sentinels,
-                master_name.as_ref().to_string(),
-                Some(info),
-                Some(pool_config),
-            )),
+            pool: Some(RedisPool::Config(Box::new(Config {
+                urls: Some(urls),
+                server_type: SentinelServerType::Master,
+                master_name: master_name.as_ref().to_string(),
+                connections: None,
+                node_connection_info: None,
+                pool: Some(pool_config),
+            }))),
+        }
+    }
+
+    /// Creates a new `RedisSentinelAsyncDataSrc` instance using an existing
+    /// `deadpool_redis::sentinel::Config`.
+    pub fn with_config(cfg: Config) -> Self {
+        Self {
+            pool: Some(RedisPool::Config(Box::new(cfg))),
         }
     }
 }
 
-impl<T> DataSrc<RedisSentinelAsyncDataConn> for RedisSentinelAsyncDataSrc<T>
-where
-    T: redis::IntoConnectionInfo + Sized + Send + fmt::Debug,
-{
+impl DataSrc<RedisSentinelAsyncDataConn> for RedisSentinelAsyncDataSrc {
     /// Asynchronously sets up the Redis Sentinel connection pool.
     /// This method should be called once before attempting to create any
     /// `RedisSentinelAsyncDataConn` instances.
@@ -365,23 +319,7 @@ where
         let pool =
             pool_opt.ok_or_else(|| errs::Err::new(RedisSentinelAsyncDataSrcError::AlreadySetup))?;
         match pool {
-            RedisPool::Config(mut sentinels, master_name, node_conn_info_opt, pool_config_opt) => {
-                let vec = mem::take(&mut sentinels);
-                let conn_info_vec = vec
-                    .into_iter()
-                    .map(|p| p.into_connection_info().map(ConnectionInfo::from))
-                    .collect::<redis::RedisResult<Vec<ConnectionInfo>>>()
-                    .map_err(|e| {
-                        errs::Err::with_source(RedisSentinelAsyncDataSrcError::FailToBuildPool, e)
-                    })?;
-                let cfg = Config {
-                    urls: None,
-                    server_type: SentinelServerType::Master,
-                    master_name: master_name.to_string(),
-                    connections: Some(conn_info_vec),
-                    node_connection_info: node_conn_info_opt,
-                    pool: pool_config_opt,
-                };
+            RedisPool::Config(cfg) => {
                 let pool = cfg.create_pool(Some(Runtime::Tokio1)).map_err(|e| {
                     errs::Err::with_source(RedisSentinelAsyncDataSrcError::FailToBuildPool, e)
                 })?;
@@ -419,7 +357,7 @@ where
 #[cfg(test)]
 mod tests_of_sentinel_async {
     use super::*;
-    use deadpool_redis::{RedisConnectionInfo, Timeouts};
+    use deadpool_redis::Timeouts;
     use override_macro::{overridable, override_with};
     use redis::AsyncCommands;
     use sabi::tokio::{logic, DataAcc, DataHub};
@@ -611,37 +549,7 @@ mod tests_of_sentinel_async {
     }
 
     #[tokio::test]
-    async fn ok_with_node_connection_info() -> errs::Result<()> {
-        let mut redis_connection_info = RedisConnectionInfo::default();
-        redis_connection_info.db = 1;
-
-        let mut sentinel_node_connection_info = SentinelNodeConnectionInfo::default();
-        sentinel_node_connection_info.redis_connection_info = Some(redis_connection_info);
-
-        let ds = RedisSentinelAsyncDataSrc::with_node_connection_info(
-            vec![
-                "redis://127.0.0.1:26479",
-                "redis://127.0.0.1:26480",
-                "redis://127.0.0.1:26481",
-            ],
-            "mymaster",
-            sentinel_node_connection_info,
-        );
-
-        let mut data = DataHub::new();
-        data.uses("redis", ds);
-        data.run_async(logic!(sample_logic_async)).await?;
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn ok_with_node_connection_info_and_pool_config() -> errs::Result<()> {
-        let mut redis_connection_info = RedisConnectionInfo::default();
-        redis_connection_info.db = 1;
-
-        let mut sentinel_node_connection_info = SentinelNodeConnectionInfo::default();
-        sentinel_node_connection_info.redis_connection_info = Some(redis_connection_info);
-
+    async fn ok_by_sentinel_urls_and_pool_config() -> errs::Result<()> {
         let pool_config = PoolConfig {
             max_size: 10,
             timeouts: Timeouts {
@@ -652,19 +560,58 @@ mod tests_of_sentinel_async {
             ..Default::default()
         };
 
-        let ds = RedisSentinelAsyncDataSrc::with_node_connection_info_and_pool_config(
-            vec![
-                "redis://127.0.0.1:26479",
-                "redis://127.0.0.1:26480",
-                "redis://127.0.0.1:26481",
-            ],
-            "mymaster",
-            sentinel_node_connection_info,
-            pool_config,
+        let mut data = DataHub::new();
+        data.uses(
+            "redis",
+            RedisSentinelAsyncDataSrc::with_addrs_and_master_name_and_pool_config(
+                vec![
+                    "redis://127.0.0.1:26479",
+                    "redis://127.0.0.1:26480",
+                    "redis://127.0.0.1:26481",
+                ],
+                "mymaster",
+                pool_config,
+            ),
         );
+        data.run_async(logic!(sample_logic_async)).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn ok_with_config() -> errs::Result<()> {
+        let pool_config = PoolConfig {
+            max_size: 10,
+            timeouts: Timeouts {
+                wait: Some(time::Duration::from_secs(10)),
+                create: Some(time::Duration::from_secs(11)),
+                recycle: Some(time::Duration::from_secs(12)),
+            },
+            ..Default::default()
+        };
+
+        let mut redis_connection_info = deadpool_redis::RedisConnectionInfo::default();
+        redis_connection_info.db = 1;
+
+        let mut sentinel_node_connection_info =
+            deadpool_redis::sentinel::SentinelNodeConnectionInfo::default();
+        sentinel_node_connection_info.redis_connection_info = Some(redis_connection_info);
+
+        let cfg = Config {
+            urls: vec![
+                "redis://127.0.0.1:26479".to_string(),
+                "redis://127.0.0.1:26480".to_string(),
+                "redis://127.0.0.1:26481".to_string(),
+            ]
+            .into(),
+            server_type: SentinelServerType::Master,
+            master_name: "mymaster".to_string(),
+            connections: None,
+            node_connection_info: Some(sentinel_node_connection_info),
+            pool: Some(pool_config),
+        };
 
         let mut data = DataHub::new();
-        data.uses("redis", ds);
+        data.uses("redis", RedisSentinelAsyncDataSrc::with_config(cfg));
         data.run_async(logic!(sample_logic_async)).await?;
         Ok(())
     }
@@ -693,17 +640,25 @@ mod tests_of_sentinel_async {
                             .1
                             .source()
                             .unwrap()
-                            .downcast_ref::<redis::RedisError>()
+                            .downcast_ref::<deadpool_redis::CreatePoolError>()
                             .unwrap();
-                        assert_eq!(e.kind(), redis::ErrorKind::InvalidClientConfig);
-                        assert!(e.detail().is_none());
-                        assert!(e.code().is_none());
-                        assert_eq!(e.category(), "invalid client config");
+                        match e {
+                            deadpool_redis::CreatePoolError::Config(ce) => match ce {
+                                deadpool_redis::ConfigError::Redis(re) => {
+                                    assert_eq!(re.kind(), redis::ErrorKind::InvalidClientConfig);
+                                    assert_eq!(re.detail(), None);
+                                    assert_eq!(re.code(), None);
+                                    assert_eq!(re.category(), "invalid client config");
+                                }
+                                _ => panic!(),
+                            },
+                            _ => panic!("{e:?}"),
+                        }
                     }
-                    _ => panic!("{:?}", err),
+                    _ => panic!("{err:?}"),
                 }
             } else {
-                panic!("{:?}", err)
+                panic!("{err:?}")
             }
         } else {
             panic!();

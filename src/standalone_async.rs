@@ -6,7 +6,7 @@ use deadpool_redis::{Config, Connection, Pool, PoolConfig, Runtime};
 use sabi::tokio::{AsyncGroup, DataConn, DataSrc};
 
 use std::future::Future;
-use std::{fmt, mem, pin};
+use std::{mem, pin};
 
 /// Errors that can occur when using `RedisAsyncDataSrc` or `RedisAsyncDataConn`.
 #[derive(Debug)]
@@ -17,10 +17,6 @@ pub enum RedisAsyncDataSrcError {
     /// Indicates that an attempt was made to set up `RedisAsyncDataSrc` when it was already set up,
     /// or to set the internal pool when it was already set.
     AlreadySetup,
-
-    /// Indicates a failure to convert the `redis::ConnectionInfo` into
-    /// `deadpool_redis::ConnectionInfo`.
-    FailToConvertConnectionInfo,
 
     /// Indicates a failure to build the Redis connection pool.
     FailToBuildPool,
@@ -237,67 +233,59 @@ impl DataConn for RedisAsyncDataConn {
     }
 }
 
-/// `RedisAsyncDataSrc` serves as an asynchronous data source for Redis, implementing the `DataSrc` trait
-/// from the `sabi::tokio` library. It manages the creation and lifecycle of a `deadpool_redis` connection pool.
+/// Manages an asynchronous connection pool for a Redis data source.
 ///
-/// `T` is a type that can be converted into `redis::ConnectionInfo`.
-pub struct RedisAsyncDataSrc<T>
-where
-    T: redis::IntoConnectionInfo + Sized + fmt::Debug,
-{
-    pool: Option<RedisPool<T>>,
+/// This struct is responsible for setting up the Redis connection pool
+/// using `deadpool_redis` and creating new `RedisAsyncDataConn` instances from the pool.
+///
+/// `RedisAsyncDataSrc` implements the `DataSrc` trait from `sabi::tokio`, allowing it to be used
+/// within an asynchronous `DataHub`.
+pub struct RedisAsyncDataSrc {
+    pool: Option<RedisPool>,
 }
 
-enum RedisPool<T>
-where
-    T: redis::IntoConnectionInfo + Sized + fmt::Debug,
-{
+enum RedisPool {
     Object(Pool),
-    Config(T, PoolConfig),
+    Config(Config),
 }
 
-impl<T> RedisAsyncDataSrc<T>
-where
-    T: redis::IntoConnectionInfo + Sized + fmt::Debug,
-{
-    /// Creates a new `RedisAsyncDataSrc` with the specified connection information and default
-    /// pool configuration.
+impl RedisAsyncDataSrc {
+    /// Creates a new `RedisAsyncDataSrc` instance with the specified Redis address.
     ///
-    /// The actual connection pool is built during the `setup_async` call.
-    ///
-    /// # Arguments
-    /// - `conn_info`: Connection information for the Redis server (e.g., a URL string or `redis::ConnectionInfo`).
-    ///
-    /// # Returns
-    /// A new `RedisAsyncDataSrc` instance.
-    pub fn new(conn_info: T) -> Self {
+    /// The `addr` parameter can be a connection string (e.g., "redis://127.0.0.1:6379/0").
+    pub fn new(addr: impl AsRef<str>) -> Self {
         Self {
-            pool: Some(RedisPool::Config(conn_info, PoolConfig::default())),
+            pool: Some(RedisPool::Config(Config {
+                url: Some(addr.as_ref().to_string()),
+                connection: None,
+                pool: Some(PoolConfig::default()),
+            })),
         }
     }
 
-    /// Creates a new `RedisAsyncDataSrc` with the specified connection information and a custom
+    /// Creates a new `RedisAsyncDataSrc` instance with the specified Redis address and a custom
     /// pool configuration.
     ///
-    /// The actual connection pool is built during the `setup_async` call.
-    ///
-    /// # Arguments
-    /// - `conn_info`: Connection information for the Redis server (e.g., a URL string or `redis::ConnectionInfo`).
-    /// - `pool_config`: Custom configuration for the `deadpool_redis` connection pool.
-    ///
-    /// # Returns
-    /// A new `RedisAsyncDataSrc` instance.
-    pub fn with_pool_config(conn_info: T, pool_config: PoolConfig) -> Self {
+    /// This allows for fine-tuning the connection pool settings, such as max size and timeouts.
+    pub fn with_addr_and_pool_config(addr: impl AsRef<str>, pool_config: PoolConfig) -> Self {
         Self {
-            pool: Some(RedisPool::Config(conn_info, pool_config)),
+            pool: Some(RedisPool::Config(Config {
+                url: Some(addr.as_ref().to_string()),
+                connection: None,
+                pool: Some(pool_config),
+            })),
+        }
+    }
+
+    /// Creates a new `RedisAsyncDataSrc` instance using an existing `deadpool_redis::Config`.
+    pub fn with_config(cfg: Config) -> Self {
+        Self {
+            pool: Some(RedisPool::Config(cfg)),
         }
     }
 }
 
-impl<T> DataSrc<RedisAsyncDataConn> for RedisAsyncDataSrc<T>
-where
-    T: redis::IntoConnectionInfo + Sized + Send + fmt::Debug,
-{
+impl DataSrc<RedisAsyncDataConn> for RedisAsyncDataSrc {
     /// Asynchronously sets up the Redis connection pool.
     /// This method should be called once before attempting to create any `RedisAsyncDataConn` instances.
     ///
@@ -312,12 +300,7 @@ where
         let pool_opt = mem::take(&mut self.pool);
         let pool = pool_opt.ok_or_else(|| errs::Err::new(RedisAsyncDataSrcError::AlreadySetup))?;
         match pool {
-            RedisPool::Config(conn_info, pool_config) => {
-                let ci = conn_info.into_connection_info().map_err(|e| {
-                    errs::Err::with_source(RedisAsyncDataSrcError::FailToConvertConnectionInfo, e)
-                })?;
-                let mut cfg = Config::from_connection_info(ci);
-                cfg.pool.replace(pool_config);
+            RedisPool::Config(cfg) => {
                 let pool = cfg.create_pool(Some(Runtime::Tokio1)).map_err(|e| {
                     errs::Err::with_source(RedisAsyncDataSrcError::FailToBuildPool, e)
                 })?;
@@ -538,17 +521,15 @@ mod tests_of_standalone_async {
 
     #[tokio::test]
     async fn ok_by_connection_info() -> errs::Result<()> {
-        let ci: redis::ConnectionInfo = "redis://127.0.0.1:6379/1".parse().unwrap();
-
         let mut data = DataHub::new();
-        data.uses("redis", RedisAsyncDataSrc::new(ci));
+        data.uses("redis", RedisAsyncDataSrc::new("redis://127.0.0.1:6379/1"));
         data.run_async(logic!(sample_logic_async)).await?;
         Ok(())
     }
 
     #[tokio::test]
     async fn ok_by_uri_and_pool_config() -> errs::Result<()> {
-        let ci: redis::ConnectionInfo = "redis://127.0.0.1:6379/1".parse().unwrap();
+        let url = "redis://127.0.0.1:6379/1".to_string();
         let pc = PoolConfig {
             max_size: 10,
             timeouts: Timeouts {
@@ -560,7 +541,10 @@ mod tests_of_standalone_async {
         };
 
         let mut data = DataHub::new();
-        data.uses("redis", RedisAsyncDataSrc::with_pool_config(ci, pc));
+        data.uses(
+            "redis",
+            RedisAsyncDataSrc::with_addr_and_pool_config(url, pc),
+        );
         data.run_async(logic!(sample_logic_async)).await?;
         Ok(())
     }
@@ -578,7 +562,7 @@ mod tests_of_standalone_async {
                         assert_eq!(errors[0].0.as_ref(), "redis");
                         if let Ok(r) = errors[0].1.reason::<RedisAsyncDataSrcError>() {
                             match r {
-                                RedisAsyncDataSrcError::FailToConvertConnectionInfo => {}
+                                RedisAsyncDataSrcError::FailToBuildPool => {}
                                 _ => panic!(),
                             }
                         } else {
@@ -588,14 +572,22 @@ mod tests_of_standalone_async {
                             .1
                             .source()
                             .unwrap()
-                            .downcast_ref::<redis::RedisError>()
+                            .downcast_ref::<deadpool_redis::CreatePoolError>()
                             .unwrap();
-                        assert_eq!(e.kind(), redis::ErrorKind::InvalidClientConfig);
-                        assert!(e.detail().is_none());
-                        assert!(e.code().is_none());
-                        assert_eq!(e.category(), "invalid client config");
+                        match e {
+                            deadpool_redis::CreatePoolError::Config(ce) => match ce {
+                                deadpool_redis::ConfigError::Redis(re) => {
+                                    assert_eq!(re.kind(), redis::ErrorKind::InvalidClientConfig);
+                                    assert_eq!(re.detail(), None);
+                                    assert_eq!(re.code(), None);
+                                    assert_eq!(re.category(), "invalid client config");
+                                }
+                                _ => panic!(),
+                            },
+                            _ => panic!("{e:?}"),
+                        }
                     }
-                    _ => panic!("{:?}", err),
+                    _ => panic!("{err:?}"),
                 }
             } else {
                 panic!();
