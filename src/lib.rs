@@ -324,3 +324,12 @@ mod cluster_sync;
 #[cfg(feature = "cluster-sync")]
 #[cfg_attr(docsrs, doc(cfg(feature = "cluster-sync")))]
 pub use cluster_sync::{RedisClusterDataConn, RedisClusterDataSrc, RedisClusterDataSrcError};
+
+#[cfg(feature = "cluster-async")]
+mod cluster_async;
+
+#[cfg(feature = "cluster-async")]
+#[cfg_attr(docsrs, doc(cfg(feature = "cluster-async")))]
+pub use cluster_async::{
+    RedisClusterAsyncDataConn, RedisClusterAsyncDataSrc, RedisClusterAsyncDataSrcError,
+};
