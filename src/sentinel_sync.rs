@@ -18,16 +18,22 @@ use std::mem;
 pub enum RedisSentinelDataSrcError {
     /// Indicates that a connection was requested before `RedisSentinelDataSrc` was set up.
     NotSetupYet,
+
     /// Indicates that a setup operation was attempted on an already-configured `RedisSentinelDataSrc`.
     AlreadySetup,
+
     /// Indicates a failure to parse connection addresses.
     FailToParseConnectionAddrs,
+
     /// Indicates a failure to create `SentinelClientBuilder`.
     FailToCreateSentinelClientBuilder,
+
     /// Indicates a failure to build the Redis Sentinel connection pool.
     FailToBuildPool,
+
     /// Indicates a failure to build the `SentinelClient`.
     FailToBuildSentinelClient,
+
     /// Indicates a failure to get a Redis Sentinel connection from the pool.
     FailToGetConnectionFromPool,
 }
@@ -203,10 +209,12 @@ impl DataConn for RedisSentinelDataConn {
     fn close(&mut self) {}
 }
 
-/// Manages a connection pool for a Redis Sentinel data source.
+/// Manages a connection pool for a Redis data source managed by Redis Sentinel.
 ///
-/// This struct is responsible for setting up the Redis Sentinel connection pool
-/// using a `redis::sentinel::SentinelClient` and creating new `RedisSentinelDataConn` instances from the pool.
+/// This struct is responsible for setting up the Redis connection pool
+/// using a `SentinelClient` and creating new `RedisSentinelDataConn` instances from the pool.
+///
+/// `RedisSentinelDataSrc` implements the `DataSrc` trait, allowing it to be used within a `DataHub`.
 pub struct RedisSentinelDataSrc<T>
 where
     T: redis::IntoConnectionInfo,
@@ -219,113 +227,97 @@ where
     T: redis::IntoConnectionInfo,
 {
     Object(r2d2::Pool<LockedSentinelClient>),
-    Sentinel(
+    Client(
         Vec<T>,
         String,
         Option<SentinelNodeConnectionInfo>,
+        SentinelServerType,
         r2d2::Builder<LockedSentinelClient>,
     ),
-    SentinelClient(SentinelClientBuilder, r2d2::Builder<LockedSentinelClient>),
+    Builder(SentinelClientBuilder, r2d2::Builder<LockedSentinelClient>),
 }
 
 impl<T> RedisSentinelDataSrc<T>
 where
     T: redis::IntoConnectionInfo,
 {
-    /// Creates a new `RedisSentinelDataSrc` instance.
+    /// Creates a new `RedisSentinelDataSrc` instance with the specified Sentinel addresses and
+    /// service name.
     ///
-    /// The connection information for Sentinel nodes and the Redis service name are stored,
-    /// but the connection pool is not built until the `setup` method is called.
-    ///
-    /// - `sentinels`: A vector of connection information for the Sentinel nodes (e.g., "redis://127.0.0.1:26379").
-    /// - `service_name`: The name of the Redis master service to connect to (as configured in Sentinel).
-    pub fn new(sentinels: Vec<T>, service_name: &str) -> Self {
+    /// The `addrs` parameter is a list of Sentinel connection strings, and `service_name` is the
+    /// name of the master group (e.g., "mymaster").
+    pub fn new(addrs: Vec<T>, service_name: impl AsRef<str>) -> Self {
         Self {
-            pool: Some(RedisPool::Sentinel(
-                sentinels,
-                service_name.to_string(),
+            pool: Some(RedisPool::Client(
+                addrs,
+                service_name.as_ref().to_string(),
                 None,
+                SentinelServerType::Master,
                 r2d2::Pool::builder(),
             )),
         }
     }
 
-    /// Creates a new `RedisSentinelDataSrc` instance with specific node connection information.
+    /// Creates a new `RedisSentinelDataSrc` instance with detailed client information.
     ///
-    /// This allows configuring specific details for connecting to the Redis master,
-    /// such as database selection or password.
-    ///
-    /// - `sentinels`: A vector of connection information for the Sentinel nodes.
-    /// - `service_name`: The name of the Redis master service.
-    /// - `info`: `SentinelNodeConnectionInfo` to customize the connection to the Redis master.
-    pub fn with_node_connection_info(
-        sentinels: Vec<T>,
-        service_name: &str,
-        info: SentinelNodeConnectionInfo,
+    /// This allows specifying a custom `SentinelNodeConnectionInfo` and `SentinelServerType`
+    /// (e.g., Master or Slave).
+    pub fn with_client_info(
+        addrs: Vec<T>,
+        service_name: impl AsRef<str>,
+        node_conn_info: SentinelNodeConnectionInfo,
+        server_type: SentinelServerType,
     ) -> Self {
         Self {
-            pool: Some(RedisPool::Sentinel(
-                sentinels,
-                service_name.to_string(),
-                Some(info),
+            pool: Some(RedisPool::Client(
+                addrs,
+                service_name.as_ref().to_string(),
+                Some(node_conn_info),
+                server_type,
                 r2d2::Pool::builder(),
             )),
         }
     }
 
-    /// Creates a new `RedisSentinelDataSrc` instance with specific node connection information
-    /// and a custom `r2d2::Pool::builder`.
+    /// Creates a new `RedisSentinelDataSrc` instance with detailed client information and a
+    /// custom pool builder.
     ///
-    /// This provides fine-grained control over both the Redis master connection details
-    /// and the connection pool's configuration.
-    ///
-    /// - `sentinels`: A vector of connection information for the Sentinel nodes.
-    /// - `service_name`: The name of the Redis master service.
-    /// - `info`: `SentinelNodeConnectionInfo` to customize the connection to the Redis master.
-    /// - `builder`: A custom `r2d2::Pool::builder` to configure the connection pool.
-    pub fn with_node_connection_info_and_pool_builder(
-        sentinels: Vec<T>,
-        service_name: &str,
-        info: SentinelNodeConnectionInfo,
-        builder: r2d2::Builder<LockedSentinelClient>,
+    /// This allows for fine-tuning the connection pool settings.
+    pub fn with_client_info_and_pool_builder(
+        addrs: Vec<T>,
+        service_name: impl AsRef<str>,
+        node_conn_info: SentinelNodeConnectionInfo,
+        server_type: SentinelServerType,
+        pool_builder: r2d2::Builder<LockedSentinelClient>,
     ) -> Self {
         Self {
-            pool: Some(RedisPool::Sentinel(
-                sentinels,
-                service_name.to_string(),
-                Some(info),
-                builder,
+            pool: Some(RedisPool::Client(
+                addrs,
+                service_name.as_ref().to_string(),
+                Some(node_conn_info),
+                server_type,
+                pool_builder,
             )),
         }
     }
 }
 
 impl RedisSentinelDataSrc<&'static str> {
-    /// Creates a new `RedisSentinelDataSrc` instance using a pre-configured `SentinelClientBuilder`.
-    ///
-    /// This allows for advanced configuration of the `SentinelClient` before it is built.
-    ///
-    /// - `builder`: A `SentinelClientBuilder` instance.
-    pub fn with_sentinel_client_builder(builder: SentinelClientBuilder) -> Self {
+    /// Creates a new `RedisSentinelDataSrc` instance using an existing `SentinelClientBuilder`.
+    pub fn with_client_builder(client_builder: SentinelClientBuilder) -> Self {
         Self {
-            pool: Some(RedisPool::SentinelClient(builder, r2d2::Pool::builder())),
+            pool: Some(RedisPool::Builder(client_builder, r2d2::Pool::builder())),
         }
     }
 
-    /// Creates a new `RedisSentinelDataSrc` instance using a pre-configured `SentinelClientBuilder`
-    /// and a custom `r2d2::Pool::builder`.
-    ///
-    /// This provides the most flexible way to configure the Redis Sentinel data source,
-    /// allowing full control over both the `SentinelClient` and the connection pool.
-    ///
-    /// - `client_builder`: A `SentinelClientBuilder` instance.
-    /// - `pool_builder`: A custom `r2d2::Pool::builder` to configure the connection pool.
-    pub fn with_sentinel_client_and_pool_builder(
+    /// Creates a new `RedisSentinelDataSrc` instance using an existing `SentinelClientBuilder`
+    /// and a custom pool builder.
+    pub fn with_client_builder_and_pool_builder(
         client_builder: SentinelClientBuilder,
         pool_builder: r2d2::Builder<LockedSentinelClient>,
     ) -> Self {
         Self {
-            pool: Some(RedisPool::SentinelClient(client_builder, pool_builder)),
+            pool: Some(RedisPool::Builder(client_builder, pool_builder)),
         }
     }
 }
@@ -344,16 +336,21 @@ where
         let pool =
             pool_opt.ok_or_else(|| errs::Err::new(RedisSentinelDataSrcError::AlreadySetup))?;
         match pool {
-            RedisPool::Sentinel(sentinels, service_name, node_conn_info_opt, pool_builder) => {
-                let client = SentinelClient::build(
-                    sentinels,
-                    service_name,
-                    node_conn_info_opt,
-                    SentinelServerType::Master,
-                )
-                .map_err(|e| {
-                    errs::Err::with_source(RedisSentinelDataSrcError::FailToBuildSentinelClient, e)
-                })?;
+            RedisPool::Client(
+                addrs,
+                service_name,
+                node_conn_info_opt,
+                server_type,
+                pool_builder,
+            ) => {
+                let client =
+                    SentinelClient::build(addrs, service_name, node_conn_info_opt, server_type)
+                        .map_err(|e| {
+                            errs::Err::with_source(
+                                RedisSentinelDataSrcError::FailToBuildSentinelClient,
+                                e,
+                            )
+                        })?;
 
                 let pool = pool_builder
                     .build(LockedSentinelClient::new(client))
@@ -364,7 +361,7 @@ where
                 self.pool = Some(RedisPool::Object(pool));
                 Ok(())
             }
-            RedisPool::SentinelClient(client_builder, pool_builder) => {
+            RedisPool::Builder(client_builder, pool_builder) => {
                 let client = client_builder.build().map_err(|e| {
                     errs::Err::with_source(RedisSentinelDataSrcError::FailToBuildSentinelClient, e)
                 })?;
@@ -548,7 +545,7 @@ mod tests_of_sentinel_sync {
     }
 
     #[test]
-    fn ok_with_node_connection_info() -> errs::Result<()> {
+    fn ok_with_client_info() -> errs::Result<()> {
         let redis_connection_info = RedisConnectionInfo::default().set_db(1);
         let sentinel_node_connection_info =
             SentinelNodeConnectionInfo::default().set_redis_connection_info(redis_connection_info);
@@ -556,7 +553,7 @@ mod tests_of_sentinel_sync {
         let mut data = DataHub::new();
         data.uses(
             "redis",
-            RedisSentinelDataSrc::with_node_connection_info(
+            RedisSentinelDataSrc::with_client_info(
                 vec![
                     "redis://127.0.0.1:26479",
                     "redis://127.0.0.1:26480",
@@ -564,6 +561,7 @@ mod tests_of_sentinel_sync {
                 ],
                 "mymaster",
                 sentinel_node_connection_info,
+                SentinelServerType::Master,
             ),
         );
         data.run(sample_logic)?;
@@ -571,7 +569,7 @@ mod tests_of_sentinel_sync {
     }
 
     #[test]
-    fn ok_with_node_connection_info_and_pool_builder() -> errs::Result<()> {
+    fn ok_with_client_info_and_pool_builder() -> errs::Result<()> {
         let redis_connection_info = RedisConnectionInfo::default().set_db(1);
         let sentinel_node_connection_info =
             SentinelNodeConnectionInfo::default().set_redis_connection_info(redis_connection_info);
@@ -586,7 +584,7 @@ mod tests_of_sentinel_sync {
         let mut data = DataHub::new();
         data.uses(
             "redis",
-            RedisSentinelDataSrc::with_node_connection_info_and_pool_builder(
+            RedisSentinelDataSrc::with_client_info_and_pool_builder(
                 vec![
                     "redis://127.0.0.1:26479",
                     "redis://127.0.0.1:26480",
@@ -594,6 +592,7 @@ mod tests_of_sentinel_sync {
                 ],
                 "mymaster",
                 sentinel_node_connection_info,
+                SentinelServerType::Master,
                 pool_builder,
             ),
         );
@@ -602,7 +601,7 @@ mod tests_of_sentinel_sync {
     }
 
     #[test]
-    fn ok_with_sentinel_client_builder() -> errs::Result<()> {
+    fn ok_with_client_builder() -> errs::Result<()> {
         let builder = SentinelClientBuilder::new(
             vec![
                 redis::ConnectionAddr::Tcp(String::from("127.0.0.1"), 26479),
@@ -615,16 +614,13 @@ mod tests_of_sentinel_sync {
         .unwrap();
 
         let mut data = DataHub::new();
-        data.uses(
-            "redis",
-            RedisSentinelDataSrc::with_sentinel_client_builder(builder),
-        );
+        data.uses("redis", RedisSentinelDataSrc::with_client_builder(builder));
         data.run(sample_logic)?;
         Ok(())
     }
 
     #[test]
-    fn with_sentinel_client_and_pool_builder() -> errs::Result<()> {
+    fn ok_with_client_builder_and_pool_builder() -> errs::Result<()> {
         let builder = SentinelClientBuilder::new(
             vec![
                 redis::ConnectionAddr::Tcp(String::from("127.0.0.1"), 26479),
@@ -646,7 +642,7 @@ mod tests_of_sentinel_sync {
         let mut data = DataHub::new();
         data.uses(
             "redis",
-            RedisSentinelDataSrc::with_sentinel_client_and_pool_builder(builder, pool_builder),
+            RedisSentinelDataSrc::with_client_builder_and_pool_builder(builder, pool_builder),
         );
         data.run(sample_logic)?;
         Ok(())

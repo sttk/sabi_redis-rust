@@ -376,23 +376,23 @@ impl<T> RedisDataSrc<T>
 where
     T: redis::IntoConnectionInfo + Sized + Debug,
 {
-    /// Creates a new `RedisDataSrc` instance.
+    /// Creates a new `RedisDataSrc` instance with the specified Redis address.
     ///
-    /// The connection information is stored, but the connection pool is not built
-    /// until the `setup` method is called.
-    pub fn new(conn_info: T) -> Self {
+    /// The `addr` parameter can be a connection string (e.g., "redis://127.0.0.1:6379/0")
+    /// or any type that implements `redis::IntoConnectionInfo`.
+    pub fn new(addr: T) -> Self {
         Self {
-            pool: Some(RedisPool::Config(conn_info, r2d2::Pool::builder())),
+            pool: Some(RedisPool::Config(addr, r2d2::Pool::builder())),
         }
     }
 
-    /// Creates a new `RedisDataSrc` instance with connection pooling configurations.
+    /// Creates a new `RedisDataSrc` instance with the specified Redis address and a custom pool
+    /// builder.
     ///
-    /// The connection information is stored, but the connection pool is not built
-    /// until the `setup` method is called.
-    pub fn with_pool_builder(conn_info: T, pool_builder: r2d2::Builder<redis::Client>) -> Self {
+    /// This allows for fine-tuning the connection pool settings, such as max size, idle timeout, etc.
+    pub fn with_addr_and_pool_builder(addr: T, pool_builder: r2d2::Builder<redis::Client>) -> Self {
         Self {
-            pool: Some(RedisPool::Config(conn_info, pool_builder)),
+            pool: Some(RedisPool::Config(addr, pool_builder)),
         }
     }
 }
@@ -410,8 +410,8 @@ where
         let pool_opt = mem::take(&mut self.pool);
         let pool = pool_opt.ok_or_else(|| errs::Err::new(RedisDataSrcError::AlreadySetup))?;
         match pool {
-            RedisPool::Config(conn_info, pool_builder) => {
-                let client = redis::Client::open(conn_info)
+            RedisPool::Config(addr, pool_builder) => {
+                let client = redis::Client::open(addr)
                     .map_err(|e| errs::Err::with_source(RedisDataSrcError::FailToOpenClient, e))?;
 
                 let pool = pool_builder
@@ -604,7 +604,7 @@ mod tests_of_standalone_sync {
         let mut data = DataHub::new();
         data.uses(
             "redis",
-            RedisDataSrc::with_pool_builder("redis://127.0.0.1:6379/2", builder),
+            RedisDataSrc::with_addr_and_pool_builder("redis://127.0.0.1:6379/2", builder),
         );
         data.run(sample_logic)?;
         Ok(())

@@ -5,6 +5,7 @@
 use sabi::{AsyncGroup, DataConn, DataSrc};
 
 use redis::cluster::{ClusterClient, ClusterClientBuilder, ClusterConnection};
+use redis::IntoConnectionInfo;
 
 use std::fmt::Debug;
 use std::{mem, time};
@@ -224,50 +225,54 @@ impl DataConn for RedisClusterDataConn {
 /// Manages a connection pool for a Redis Cluster data source.
 ///
 /// This struct is responsible for setting up the Redis Cluster connection pool
-/// using a `redis::cluster::ClusterClient` and creating new `RedisClusterDataConn` instances from the pool.
+/// using a `ClusterClient` and creating new `RedisClusterDataConn` instances from the pool.
+///
+/// `RedisClusterDataSrc` implements the `DataSrc` trait, allowing it to be used within a `DataHub`.
 pub struct RedisClusterDataSrc {
     pool: Option<RedisPool>,
 }
 
 enum RedisPool {
     Object(r2d2::Pool<ClusterClient>),
-    ClientBuilder(Box<ClusterClientBuilder>, r2d2::Builder<ClusterClient>),
+    Builder(Box<ClusterClientBuilder>, r2d2::Builder<ClusterClient>),
 }
 
 impl RedisClusterDataSrc {
-    /// Creates a new `RedisClusterDataSrc` instance.
+    /// Creates a new `RedisClusterDataSrc` instance with the specified Redis Cluster addresses.
     ///
-    /// The connection information for initial nodes is stored, but the connection pool is not built
-    /// until the `setup` method is called.
-    ///
-    /// - `initial_nodes`: An iterator of connection information for the initial Cluster nodes (e.g., "redis://127.0.0.1:7000").
-    pub fn new<T: redis::IntoConnectionInfo>(initial_nodes: impl IntoIterator<Item = T>) -> Self {
-        let builder = ClusterClientBuilder::new(initial_nodes);
+    /// The `addrs` parameter can be an iterator of connection strings
+    /// (e.g., `vec!["redis://127.0.0.1:7000/", "redis://127.0.0.1:7001/"]`).
+    pub fn new<I, T>(addrs: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: IntoConnectionInfo,
+    {
+        let builder = ClusterClientBuilder::new(addrs);
         Self {
-            pool: Some(RedisPool::ClientBuilder(
-                Box::new(builder),
+            pool: Some(RedisPool::Builder(Box::new(builder), r2d2::Pool::builder())),
+        }
+    }
+
+    /// Creates a new `RedisClusterDataSrc` instance using an existing `ClusterClientBuilder`.
+    pub fn with_client_builder(client_builder: ClusterClientBuilder) -> Self {
+        Self {
+            pool: Some(RedisPool::Builder(
+                Box::new(client_builder),
                 r2d2::Pool::builder(),
             )),
         }
     }
 
-    /// Creates a new `RedisClusterDataSrc` instance with a pre-configured `ClusterClientBuilder`
-    /// and a custom `r2d2::Pool::builder`.
+    /// Creates a new `RedisClusterDataSrc` instance using an existing `ClusterClientBuilder`
+    /// and a custom pool builder.
     ///
-    /// This provides fine-grained control over both the Redis Cluster client details
-    /// and the connection pool's configuration.
-    ///
-    /// - `client_builder`: A `ClusterClientBuilder` instance.
-    /// - `pool_builder`: A custom `r2d2::Pool::builder` to configure the connection pool.
-    pub fn with_client_and_pool_builder(
+    /// This allows for fine-tuning the connection pool settings.
+    pub fn with_client_builder_and_pool_builder(
         client_builder: ClusterClientBuilder,
         pool_builder: r2d2::Builder<ClusterClient>,
     ) -> Self {
         Self {
-            pool: Some(RedisPool::ClientBuilder(
-                Box::new(client_builder),
-                pool_builder,
-            )),
+            pool: Some(RedisPool::Builder(Box::new(client_builder), pool_builder)),
         }
     }
 }
@@ -283,7 +288,7 @@ impl DataSrc<RedisClusterDataConn> for RedisClusterDataSrc {
         let pool =
             pool_opt.ok_or_else(|| errs::Err::new(RedisClusterDataSrcError::AlreadySetup))?;
         match pool {
-            RedisPool::ClientBuilder(conn_builder, pool_builder) => {
+            RedisPool::Builder(conn_builder, pool_builder) => {
                 let client = conn_builder.build().map_err(|e| {
                     errs::Err::with_source(RedisClusterDataSrcError::FailToBuildClient, e)
                 })?;
@@ -480,7 +485,7 @@ mod tests_of_cluster_sync {
         let mut data = DataHub::new();
         data.uses(
             "redis",
-            RedisClusterDataSrc::with_client_and_pool_builder(client_builder, pool_builder),
+            RedisClusterDataSrc::with_client_builder_and_pool_builder(client_builder, pool_builder),
         );
         data.run(sample_logic)?;
         Ok(())
