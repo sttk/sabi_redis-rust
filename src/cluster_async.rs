@@ -3,6 +3,7 @@
 // See the file LICENSE in this distribution for more details.
 
 use deadpool_redis::cluster::{Config, Connection, Pool, PoolConfig, Runtime};
+use deadpool_redis::Timeouts;
 use sabi::tokio::{AsyncGroup, DataConn, DataSrc};
 
 use std::future::Future;
@@ -62,6 +63,27 @@ impl RedisClusterAsyncDataConn {
         })
     }
 
+    /// Asynchronously retrieves a Redis connection from the internal connection pool, waiting
+    /// for at most timeout.
+    ///
+    /// # Arguments
+    /// - `timeouts`: Timeouts when getting a connection from a `Pool`.
+    ///
+    /// # Returns
+    /// - `Ok(Connection)` if a connection is successfully retrieved.
+    /// - `Err(errs::Err)` if there's a failure to get a connection from the pool.
+    pub async fn get_connection_with_timeout_async(
+        &mut self,
+        timeouts: Timeouts,
+    ) -> errs::Result<Connection> {
+        self.pool.timeout_get(&timeouts).await.map_err(|e| {
+            errs::Err::with_source(
+                RedisClusterAsyncDataSrcError::FailToGetConnectionFromPool,
+                e,
+            )
+        })
+    }
+
     /// Adds an asynchronous function to be executed during the pre-commit phase.
     /// These functions are executed before the main transaction logic is considered "committed".
     ///
@@ -69,8 +91,8 @@ impl RedisClusterAsyncDataConn {
     /// will be registered that will propagate the connection error during the pre-commit phase.
     ///
     /// # Arguments
-    /// - `f`: An asynchronous closure that takes a `deadpool_redis::cluster::Connection` and returns
-    ///   an `errs::Result<()>`.
+    /// - `f`: An asynchronous closure that takes a `deadpool_redis::cluster::Connection` and
+    ///   returns an `errs::Result<()>`.
     pub async fn add_pre_commit_async<F, Fut>(&mut self, mut f: F)
     where
         F: FnMut(Connection) -> Fut,
@@ -97,8 +119,8 @@ impl RedisClusterAsyncDataConn {
     /// will be registered that will propagate the connection error during the post-commit phase.
     ///
     /// # Arguments
-    /// - `f`: An asynchronous closure that takes a `deadpool_redis::cluster::Connection` and returns
-    ///   an `errs::Result<()>`.
+    /// - `f`: An asynchronous closure that takes a `deadpool_redis::cluster::Connection` and
+    ///   returns an `errs::Result<()>`.
     pub async fn add_post_commit_async<F, Fut>(&mut self, mut f: F)
     where
         F: FnMut(Connection) -> Fut,
@@ -126,8 +148,8 @@ impl RedisClusterAsyncDataConn {
     /// will be registered that will propagate the connection error during the force-back phase.
     ///
     /// # Arguments
-    /// - `f`: An asynchronous closure that takes a `deadpool_redis::cluster::Connection` and returns
-    ///   an `errs::Result<()>`.
+    /// - `f`: An asynchronous closure that takes a `deadpool_redis::cluster::Connection` and
+    ///   returns an `errs::Result<()>`.
     pub async fn add_force_back_async<F, Fut>(&mut self, mut f: F)
     where
         F: FnMut(Connection) -> Fut,
@@ -383,7 +405,9 @@ mod tests_of_cluster_async {
             let data_conn = self
                 .get_data_conn_async::<RedisClusterAsyncDataConn>("redis")
                 .await?;
-            let mut conn = data_conn.get_connection_async().await?;
+            let mut conn = data_conn
+                .get_connection_with_timeout_async(Timeouts::wait_millis(1000))
+                .await?;
             conn.set("sample_cluster_async", val)
                 .await
                 .map_err(|e| errs::Err::with_source(SampleClusterAsyncError::FailToSetValue, e))
@@ -402,7 +426,9 @@ mod tests_of_cluster_async {
             let data_conn = self
                 .get_data_conn_async::<RedisClusterAsyncDataConn>("redis")
                 .await?;
-            let mut conn = data_conn.get_connection_async().await?;
+            let mut conn = data_conn
+                .get_connection_with_timeout_async(Timeouts::wait_millis(1000))
+                .await?;
 
             let log_opt: Option<String> = conn.get("log_cluster_async").await.unwrap();
             let log = log_opt.unwrap_or("".to_string());
@@ -416,8 +442,7 @@ mod tests_of_cluster_async {
                 .add_force_back_async(async |mut conn| {
                     let log_opt: Option<String> = conn.get("log_cluster_async").await.unwrap();
                     let log = log_opt.unwrap_or("".to_string());
-                    let _: Option<()> =
-                        conn.set("log_cluster_async", log + "LOG2.").await.unwrap();
+                    let _: Option<()> = conn.set("log_cluster_async", log + "LOG2.").await.unwrap();
 
                     conn.del("sample_force_back_cluster_async")
                         .await
@@ -437,8 +462,7 @@ mod tests_of_cluster_async {
                 .add_force_back_async(async |mut conn| {
                     let log_opt: Option<String> = conn.get("log_cluster_async").await.unwrap();
                     let log = log_opt.unwrap_or("".to_string());
-                    let _: Option<()> =
-                        conn.set("log_cluster_async", log + "LOG4.").await.unwrap();
+                    let _: Option<()> = conn.set("log_cluster_async", log + "LOG4.").await.unwrap();
 
                     conn.del("sample_force_back_cluster_async_2")
                         .await
@@ -533,13 +557,11 @@ mod tests_of_cluster_async {
         let mut data = DataHub::new();
         data.uses(
             "redis",
-            RedisClusterAsyncDataSrc::new(
-                vec![
-                    "redis://127.0.0.1:7000/",
-                    "redis://127.0.0.1:7001/",
-                    "redis://127.0.0.1:7002/",
-                ],
-            ),
+            RedisClusterAsyncDataSrc::new(vec![
+                "redis://127.0.0.1:7000/",
+                "redis://127.0.0.1:7001/",
+                "redis://127.0.0.1:7002/",
+            ]),
         );
         data.run_async(logic!(sample_logic_async)).await?;
         Ok(())
@@ -615,10 +637,7 @@ mod tests_of_cluster_async {
         };
 
         let mut data = DataHub::new();
-        data.uses(
-            "redis",
-            RedisClusterAsyncDataSrc::with_config(cfg),
-        );
+        data.uses("redis", RedisClusterAsyncDataSrc::with_config(cfg));
         data.run_async(logic!(sample_logic_async)).await?;
         Ok(())
     }
@@ -626,10 +645,7 @@ mod tests_of_cluster_async {
     #[tokio::test]
     async fn fail_to_setup() {
         let mut data = DataHub::new();
-        data.uses(
-            "redis",
-            RedisClusterAsyncDataSrc::new(vec!["xxxxxx"]),
-        );
+        data.uses("redis", RedisClusterAsyncDataSrc::new(vec!["xxxxxx"]));
 
         if let Err(err) = data.run_async(logic!(sample_logic_async)).await {
             if let Ok(r) = err.reason::<sabi::tokio::DataHubError>() {
@@ -699,13 +715,11 @@ mod tests_of_cluster_async {
         let mut data = DataHub::new();
         data.uses(
             "redis",
-            RedisClusterAsyncDataSrc::new(
-                vec![
-                    "redis://127.0.0.1:7000",
-                    "redis://127.0.0.1:7001",
-                    "redis://127.0.0.1:7002",
-                ],
-            ),
+            RedisClusterAsyncDataSrc::new(vec![
+                "redis://127.0.0.1:7000",
+                "redis://127.0.0.1:7001",
+                "redis://127.0.0.1:7002",
+            ]),
         );
         data.txn_async(logic!(sample_logic_in_txn_and_pre_commit_async))
             .await?;
@@ -733,13 +747,11 @@ mod tests_of_cluster_async {
         let mut data = DataHub::new();
         data.uses(
             "redis",
-            RedisClusterAsyncDataSrc::new(
-                vec![
-                    "redis://127.0.0.1:7000",
-                    "redis://127.0.0.1:7001",
-                    "redis://127.0.0.1:7002",
-                ],
-            ),
+            RedisClusterAsyncDataSrc::new(vec![
+                "redis://127.0.0.1:7000",
+                "redis://127.0.0.1:7001",
+                "redis://127.0.0.1:7002",
+            ]),
         );
         data.txn_async(logic!(sample_logic_in_txn_and_post_commit_async))
             .await?;
@@ -768,9 +780,9 @@ mod tests_of_cluster_async {
         data.uses(
             "redis",
             RedisClusterAsyncDataSrc::new(vec![
-               "redis://127.0.0.1:7000",
-               "redis://127.0.0.1:7001",
-               "redis://127.0.0.1:7002",
+                "redis://127.0.0.1:7000",
+                "redis://127.0.0.1:7001",
+                "redis://127.0.0.1:7002",
             ]),
         );
         if let Err(err) = data

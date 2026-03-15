@@ -32,9 +32,12 @@ pub enum RedisClusterDataSrcError {
 
 /// A session-scoped connection to the Redis Cluster.
 ///
-/// This struct holds a pooled Redis Cluster connection and provides a `get_connection` method
-/// to access it. It also provides "pre-commit", "post-commit" and "force back" mechanisms for handling transaction failures.
-/// Since Redis Cluster does not support rollbacks, changes are committed with each update operation.
+/// This struct holds a pooled Redis Cluster connection and provides `get_connection`,
+/// `get_connection_with_timeout`, `try_get_connection` methods
+/// to access it. It also provides "pre-commit", "post-commit" and "force back" mechanisms for
+/// handling transaction failures.
+/// Since Redis Cluster does not support rollbacks, changes are committed with each update
+/// operation.
 /// The `add_force_back` method allows registering functions to manually revert changes
 /// if an error occurs during a multi-step process or a transaction involving
 /// other external data sources.
@@ -83,7 +86,8 @@ impl RedisClusterDataConn {
         })
     }
 
-    /// Attempt to retrieves a mutable reference to the underlying Redis Cluster connection from the pool.
+    /// Attempt to retrieves a mutable reference to the underlying Redis Cluster connection from
+    /// the pool.
     /// This method will not block waiting to establish a new connection.
     ///
     /// This reference allows direct access to Redis Cluster commands.
@@ -351,13 +355,14 @@ mod tests_of_cluster_sync {
         }
         fn set_sample_key(&mut self, val: &str) -> errs::Result<()> {
             let data_conn = self.get_data_conn::<RedisClusterDataConn>("redis")?;
-            let mut conn = data_conn.get_connection()?;
+            let mut conn =
+                data_conn.get_connection_with_timeout(time::Duration::from_millis(1000))?;
             conn.set("sample_cluster", val)
                 .map_err(|e| errs::Err::with_source(SampleError::FailToSetValue, e))
         }
         fn del_sample_key(&mut self) -> errs::Result<()> {
             let data_conn = self.get_data_conn::<RedisClusterDataConn>("redis")?;
-            let mut conn = data_conn.get_connection()?;
+            let mut conn = data_conn.try_get_connection().unwrap();
             conn.del("sample_cluster")
                 .map_err(|e| errs::Err::with_source(SampleError::FailToDelValue, e))
         }

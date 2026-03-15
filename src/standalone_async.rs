@@ -2,6 +2,7 @@
 // This program is free software under MIT License.
 // See the file LICENSE in this distribution for more details.
 
+use deadpool_redis::Timeouts;
 use deadpool_redis::{Config, Connection, Pool, PoolConfig, Runtime};
 use sabi::tokio::{AsyncGroup, DataConn, DataSrc};
 
@@ -11,7 +12,8 @@ use std::{mem, pin};
 /// Errors that can occur when using `RedisAsyncDataSrc` or `RedisAsyncDataConn`.
 #[derive(Debug)]
 pub enum RedisAsyncDataSrcError {
-    /// Indicates that the `RedisAsyncDataSrc` has not been set up yet (i.e., `setup_async` was not called).
+    /// Indicates that the `RedisAsyncDataSrc` has not been set up yet (i.e., `setup_async` was not
+    /// called).
     NotSetupYet,
 
     /// Indicates that an attempt was made to set up `RedisAsyncDataSrc` when it was already set up,
@@ -27,8 +29,8 @@ pub enum RedisAsyncDataSrcError {
 
 type BoxedFuture = pin::Pin<Box<dyn Future<Output = errs::Result<()>> + Send + 'static>>;
 
-/// `RedisAsyncDataConn` is an asynchronous data connection for Redis, implementing the `DataConn` trait
-/// from the `sabi::tokio` library. It manages Redis connections from a pool and allows
+/// `RedisAsyncDataConn` is an asynchronous data connection for Redis, implementing the `DataConn`
+/// trait from the `sabi::tokio` library. It manages Redis connections from a pool and allows
 /// registration of asynchronous operations to be executed at different transaction phases
 /// (pre-commit, post-commit, force-back).
 pub struct RedisAsyncDataConn {
@@ -55,6 +57,24 @@ impl RedisAsyncDataConn {
     /// - `Err(errs::Err)` if there's a failure to get a connection from the pool.
     pub async fn get_connection_async(&mut self) -> errs::Result<Connection> {
         self.pool.get().await.map_err(|e| {
+            errs::Err::with_source(RedisAsyncDataSrcError::FailToGetConnectionFromPool, e)
+        })
+    }
+
+    /// Asynchronously retrieves a Redis connection from the internal connection pool, waiting
+    /// for at most timeout.
+    ///
+    /// # Arguments
+    /// - `timeouts`: Timeouts when getting a connection from a `Pool`.
+    ///
+    /// # Returns
+    /// - `Ok(Connection)` if a connection is successfully retrieved.
+    /// - `Err(errs::Err)` if there's a failure to get a connection from the pool.
+    pub async fn get_connection_with_timeout_async(
+        &mut self,
+        timeouts: Timeouts,
+    ) -> errs::Result<Connection> {
+        self.pool.timeout_get(&timeouts).await.map_err(|e| {
             errs::Err::with_source(RedisAsyncDataSrcError::FailToGetConnectionFromPool, e)
         })
     }
@@ -193,7 +213,8 @@ impl DataConn for RedisAsyncDataConn {
     }
 
     /// Indicates whether force-back operations should be executed if a transaction fails.
-    /// This implementation always returns `true`, meaning `force_back_async` will be called on error.
+    /// This implementation always returns `true`, meaning `force_back_async` will be called on
+    /// error.
     ///
     /// # Returns
     /// - `true` always.
@@ -201,7 +222,8 @@ impl DataConn for RedisAsyncDataConn {
         true
     }
 
-    /// The rollback phase for Redis is generally a no-op as commands are often executed immediately.
+    /// The rollback phase for Redis is generally a no-op as commands are often executed
+    /// immediately.
     /// Rollback logic is handled by `force_back_async`.
     ///
     /// # Arguments
@@ -287,10 +309,12 @@ impl RedisAsyncDataSrc {
 
 impl DataSrc<RedisAsyncDataConn> for RedisAsyncDataSrc {
     /// Asynchronously sets up the Redis connection pool.
-    /// This method should be called once before attempting to create any `RedisAsyncDataConn` instances.
+    /// This method should be called once before attempting to create any `RedisAsyncDataConn`
+    /// instances.
     ///
     /// # Arguments
-    /// - `_ag`: An `AsyncGroup` (unused in this implementation, but required by the `DataSrc` trait).
+    /// - `_ag`: An `AsyncGroup` (unused in this implementation, but required by the `DataSrc`
+    ///   trait).
     ///
     /// # Returns
     /// - `Ok(())` if the pool is successfully built and set.
@@ -320,7 +344,8 @@ impl DataSrc<RedisAsyncDataConn> for RedisAsyncDataSrc {
     }
 
     /// Asynchronously creates a new `RedisAsyncDataConn` instance.
-    /// This method obtains a clone of the internal connection pool to create a new connection object.
+    /// This method obtains a clone of the internal connection pool to create a new connection
+    /// object.
     ///
     /// # Returns
     /// - `Ok(Box<RedisAsyncDataConn>)` containing a new data connection.
@@ -368,7 +393,9 @@ mod tests_of_standalone_async {
             let data_conn = self
                 .get_data_conn_async::<RedisAsyncDataConn>("redis")
                 .await?;
-            let mut conn = data_conn.get_connection_async().await?;
+            let mut conn = data_conn
+                .get_connection_with_timeout_async(Timeouts::wait_millis(1000))
+                .await?;
             conn.set("sample_async", val)
                 .await
                 .map_err(|e| errs::Err::with_source(SampleAsyncError::FailToSetValue, e))
@@ -387,7 +414,9 @@ mod tests_of_standalone_async {
             let data_conn = self
                 .get_data_conn_async::<RedisAsyncDataConn>("redis")
                 .await?;
-            let mut conn = data_conn.get_connection_async().await?;
+            let mut conn = data_conn
+                .get_connection_with_timeout_async(Timeouts::wait_millis(1000))
+                .await?;
 
             let log_opt: Option<String> = conn.get("log_async").await.unwrap();
             let log = log_opt.unwrap_or("".to_string());
