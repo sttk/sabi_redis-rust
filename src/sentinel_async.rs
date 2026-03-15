@@ -258,7 +258,11 @@ impl RedisSentinelAsyncDataSrc {
     ///
     /// The `addrs` parameter is a list of Sentinel connection strings, and `master_name` is the
     /// name of the master group (e.g., "mymaster").
-    pub fn new(addrs: Vec<impl AsRef<str>>, master_name: impl AsRef<str>) -> Self {
+    pub fn new<I, S>(addrs: I, master_name: S) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
         let urls = addrs.into_iter().map(|s| s.as_ref().to_string()).collect();
         Self {
             pool: Some(RedisPool::Config(Box::new(Config {
@@ -276,11 +280,15 @@ impl RedisSentinelAsyncDataSrc {
     /// master name, and custom pool configuration.
     ///
     /// This allows for fine-tuning the connection pool settings.
-    pub fn with_addrs_and_master_name_and_pool_config(
-        addrs: Vec<impl AsRef<str>>,
-        master_name: impl AsRef<str>,
+    pub fn with_addrs_and_master_name_and_pool_config<I, S>(
+        addrs: I,
+        master_name: S,
         pool_config: PoolConfig,
-    ) -> Self {
+    ) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
         let urls = addrs.into_iter().map(|s| s.as_ref().to_string()).collect();
         Self {
             pool: Some(RedisPool::Config(Box::new(Config {
