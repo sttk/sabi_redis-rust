@@ -10,7 +10,7 @@ use redis::sentinel::{
 };
 
 use std::fmt::Debug;
-use std::mem;
+use std::{mem, time};
 
 /// Represents a reason for errors that can occur during `RedisSentinelDataSrc` operations,
 /// to be passed to `errs::Err`.
@@ -19,7 +19,8 @@ pub enum RedisSentinelDataSrcError {
     /// Indicates that a connection was requested before `RedisSentinelDataSrc` was set up.
     NotSetupYet,
 
-    /// Indicates that a setup operation was attempted on an already-configured `RedisSentinelDataSrc`.
+    /// Indicates that a setup operation was attempted on an already-configured
+    /// `RedisSentinelDataSrc`.
     AlreadySetup,
 
     /// Indicates a failure to parse connection addresses.
@@ -40,8 +41,10 @@ pub enum RedisSentinelDataSrcError {
 
 /// A session-scoped connection to the Redis server managed by Redis Sentinel.
 ///
-/// This struct holds a pooled `LockedSentinelClient` connection and provides a `get_connection` method
-/// to access it. It also provides "pre-commit", "post-commit" and "force back" mechanisms for handling transaction failures.
+/// This struct holds a pooled `LockedSentinelClient` connection and provides `get_connection`,
+/// `get_connection_with_timeout` and `try_get_connection` methods
+/// to access it. It also provides "pre-commit", "post-commit" and "force back" mechanisms for
+/// handling transaction failures.
 /// Since Redis does not support rollbacks, changes are committed with each update operation.
 /// The `add_force_back` method allows registering functions to manually revert changes
 /// if an error occurs during a multi-step process or a transaction involving
@@ -76,6 +79,30 @@ impl RedisSentinelDataConn {
         self.pool.get().map_err(|e| {
             errs::Err::with_source(RedisSentinelDataSrcError::FailToGetConnectionFromPool, e)
         })
+    }
+
+    /// Retrieves a mutable reference to the underlying Redis connection from the pool, waiting for
+    /// at most timeout.
+    /// This method will wait for at most the configured connection timeout before returning an
+    /// error.
+    ///
+    /// This reference allows direct access to Redis commands.
+    pub fn get_connection_with_timeout(
+        &mut self,
+        timeout: time::Duration,
+    ) -> errs::Result<r2d2::PooledConnection<LockedSentinelClient>> {
+        self.pool.get_timeout(timeout).map_err(|e| {
+            errs::Err::with_source(RedisSentinelDataSrcError::FailToGetConnectionFromPool, e)
+        })
+    }
+
+    /// Attempt to retrieves a mutable reference to the underlying Redis Sentinel connection from
+    /// the pool.
+    /// This method will not block waiting to establish a new connection.
+    ///
+    /// This reference allows direct access to Redis commands.
+    pub fn try_get_connection(&self) -> Option<r2d2::PooledConnection<LockedSentinelClient>> {
+        self.pool.try_get()
     }
 
     /// Adds a function to the list of "pre commit" operations.
@@ -427,13 +454,14 @@ mod tests_of_sentinel_sync {
         }
         fn set_sample_key(&mut self, val: &str) -> errs::Result<()> {
             let data_conn = self.get_data_conn::<RedisSentinelDataConn>("redis")?;
-            let mut conn = data_conn.get_connection()?;
+            let mut conn =
+                data_conn.get_connection_with_timeout(time::Duration::from_millis(1000))?;
             conn.set("sample_sentinel", val)
                 .map_err(|e| errs::Err::with_source(SampleError::FailToGetValue, e))
         }
         fn del_sample_key(&mut self) -> errs::Result<()> {
             let data_conn = self.get_data_conn::<RedisSentinelDataConn>("redis")?;
-            let mut conn = data_conn.get_connection()?;
+            let mut conn = data_conn.try_get_connection().unwrap();
             conn.del("sample_sentinel")
                 .map_err(|e| errs::Err::with_source(SampleError::FailToDelValue, e))
         }

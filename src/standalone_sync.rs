@@ -29,7 +29,8 @@ pub enum RedisDataSrcError {
 
 /// A session-scoped connection to the Redis server.
 ///
-/// This struct holds a pooled Redis connection and provides a `get_connection` method
+/// This struct holds a pooled Redis connection and provides get_connection` and
+/// `get_connection_with_timeout` methods
 /// to access it. It also provides a "force back" mechanism for handling transaction failures.
 /// Since Redis does not support rollbacks, changes are committed with each update operation.
 /// The `add_force_back` method allows registering functions to manually revert changes
@@ -472,13 +473,14 @@ mod tests_of_standalone_sync {
         }
         fn set_sample_key(&mut self, val: &str) -> errs::Result<()> {
             let data_conn = self.get_data_conn::<RedisDataConn>("redis")?;
-            let mut conn = data_conn.get_connection()?;
+            let mut conn =
+                data_conn.get_connection_with_timeout(time::Duration::from_millis(1000))?;
             conn.set("sample", val)
                 .map_err(|e| errs::Err::with_source(SampleError::FailToSetValue, e))
         }
         fn del_sample_key(&mut self) -> errs::Result<()> {
             let data_conn = self.get_data_conn::<RedisDataConn>("redis")?;
-            let mut conn = data_conn.get_connection()?;
+            let mut conn = data_conn.try_get_connection().unwrap();
             conn.del("sample")
                 .map_err(|e| errs::Err::with_source(SampleError::FailToDelValue, e))
         }

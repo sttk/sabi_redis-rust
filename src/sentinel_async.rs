@@ -3,6 +3,7 @@
 // See the file LICENSE in this distribution for more details.
 
 use deadpool_redis::sentinel::{Config, Connection, Pool, PoolConfig, Runtime, SentinelServerType};
+use deadpool_redis::Timeouts;
 use sabi::tokio::{AsyncGroup, DataConn, DataSrc};
 
 use std::future::Future;
@@ -11,10 +12,12 @@ use std::{mem, pin};
 /// Errors that can occur when using `RedisSentinelAsyncDataSrc` or `RedisSentinelAsyncDataConn`.
 #[derive(Debug)]
 pub enum RedisSentinelAsyncDataSrcError {
-    /// Indicates that the `RedisSentinelAsyncDataSrc` has not been set up yet (i.e., `setup_async` was not called).
+    /// Indicates that the `RedisSentinelAsyncDataSrc` has not been set up yet (i.e., `setup_async`
+    /// was not called).
     NotSetupYet,
 
-    /// Indicates that an attempt was made to set up `RedisSentinelAsyncDataSrc` when it was already set up,
+    /// Indicates that an attempt was made to set up `RedisSentinelAsyncDataSrc` when it was
+    /// already set up,
     /// or to set the internal pool when it was already set.
     AlreadySetup,
 
@@ -55,6 +58,27 @@ impl RedisSentinelAsyncDataConn {
     /// - `Err(errs::Err)` if there's a failure to get a connection from the pool.
     pub async fn get_connection_async(&mut self) -> errs::Result<Connection> {
         self.pool.get().await.map_err(|e| {
+            errs::Err::with_source(
+                RedisSentinelAsyncDataSrcError::FailToGetConnectionFromPool,
+                e,
+            )
+        })
+    }
+
+    /// Asynchronously retrieves a Redis connection from the internal connection pool, waiting for
+    /// at mot timeout.
+    ///
+    /// # Arguments
+    /// - `timeouts`: Timeouts when getting a connection from a `Pool`.
+    ///
+    /// # Returns
+    /// - `Ok(Connection)` if a connection is successfully retrieved.
+    /// - `Err(errs::Err)` if there's a failure to get a connection from the pool.
+    pub async fn get_connection_with_timeout_async(
+        &mut self,
+        timeouts: Timeouts,
+    ) -> errs::Result<Connection> {
+        self.pool.timeout_get(&timeouts).await.map_err(|e| {
             errs::Err::with_source(
                 RedisSentinelAsyncDataSrcError::FailToGetConnectionFromPool,
                 e,
@@ -393,7 +417,9 @@ mod tests_of_sentinel_async {
             let data_conn = self
                 .get_data_conn_async::<RedisSentinelAsyncDataConn>("redis")
                 .await?;
-            let mut conn = data_conn.get_connection_async().await?;
+            let mut conn = data_conn
+                .get_connection_with_timeout_async(Timeouts::wait_millis(1000))
+                .await?;
             conn.set("sample_sentinel_async", val)
                 .await
                 .map_err(|e| errs::Err::with_source(SampleSentinelAsyncError::FailToSetValue, e))
@@ -412,7 +438,9 @@ mod tests_of_sentinel_async {
             let data_conn = self
                 .get_data_conn_async::<RedisSentinelAsyncDataConn>("redis")
                 .await?;
-            let mut conn = data_conn.get_connection_async().await?;
+            let mut conn = data_conn
+                .get_connection_with_timeout_async(Timeouts::wait_millis(1000))
+                .await?;
 
             let log_opt: Option<String> = conn.get("log_sentinel_async").await.unwrap();
             let log = log_opt.unwrap_or("".to_string());
