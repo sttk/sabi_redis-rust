@@ -170,6 +170,40 @@
 //! }
 //! ```
 //!
+//! ### Cluster configuration and asynchronous commands
+//!
+//! `RedisClusterAsyncDataSrc` and `RedisClusterAsyncDataConn` are designed for a Redis Cluster
+//! setup and provide asynchronous connections for processing Redis commands within a Tokio runtime.
+//!
+//! This type requires the `"cluster-async"` feature to be enabled.
+//!
+//! #### Example
+//!
+//! ```ignore
+//! use errs;
+//! use sabi_redis::RedisClusterAsyncDataSrc;
+//! use tokio;
+//!
+//! #[tokio::main]
+//! async fn main() -> errs::Result<()> {
+//!     sabi::tokio::uses(
+//!         "redis",
+//!         RedisClusterAsyncDataSrc::new(
+//!             vec![
+//!                 "redis://127.0.0.1:7000",
+//!                 "redis://127.0.0.1:7001",
+//!                 "redis://127.0.0.1:7002",
+//!             ],
+//!         ),
+//!     );
+//!
+//!     let _auto_shutdown = sabi_tokio::setup_async().await?;
+//!
+//!     // ...
+//!     Ok(())
+//! }
+//! ```
+//!
 //! ## Transaction Rollback Alternative
 //!
 //! Redis does not support transactions like relational databases (RDBs) and lacks the ability to
