@@ -1,10 +1,36 @@
 #[cfg(feature = "cluster-sync")]
 #[cfg(test)]
-mod integration_tests_of_cluster_sync {
+mod integration_tests {
     use override_macro::{overridable, override_with};
     use redis::TypedCommands;
     use sabi::{uses, DataAcc, DataHub};
-    use sabi_redis::{RedisClusterDataConn, RedisClusterDataSrc};
+    use sabi_redis::cluster::{RedisClusterDataConn, RedisClusterDataSrc};
+
+    uses!(
+        "redis_cluster",
+        RedisClusterDataSrc::new(vec![
+            "redis://127.0.0.1:7000",
+            "redis://127.0.0.1:7001",
+            "redis://127.0.0.1:7002",
+        ])
+    );
+
+    #[test]
+    fn test() -> errs::Result<()> {
+        let _auto_shutdown = sabi::setup()?;
+
+        my_app()
+    }
+
+    fn my_app() -> errs::Result<()> {
+        let mut data = DataHub::new();
+        data.txn(my_logic)
+    }
+
+    fn my_logic(data: &mut impl MyData) -> errs::Result<()> {
+        let greeting = data.get_greeting()?;
+        data.say_greeting(&greeting)
+    }
 
     #[overridable]
     trait MyData {
@@ -45,32 +71,4 @@ mod integration_tests_of_cluster_sync {
 
     #[override_with(GettingDataAcc, RedisSayingDataAcc)]
     impl MyData for DataHub {}
-
-    fn my_logic(data: &mut impl MyData) -> errs::Result<()> {
-        let greeting = data.get_greeting()?;
-        data.say_greeting(&greeting)
-    }
-
-    fn my_app() -> errs::Result<()> {
-        let mut data = DataHub::new();
-        data.txn(my_logic)
-    }
-
-    #[test]
-    fn test() -> errs::Result<()> {
-        uses(
-          "redis_cluster",
-          RedisClusterDataSrc::new(
-            vec![
-              "redis://127.0.0.1:7000",
-              "redis://127.0.0.1:7001",
-              "redis://127.0.0.1:7002",
-            ],
-          ),
-        )?;
-
-        let _auto_shutdown = sabi::setup()?;
-
-        my_app()
-    }
 }

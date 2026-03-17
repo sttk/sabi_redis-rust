@@ -1,10 +1,39 @@
 #[cfg(feature = "sentinel-sync")]
 #[cfg(test)]
-mod integration_tests_of_sentinel_sync {
+mod integration_tests {
     use override_macro::{overridable, override_with};
     use redis::TypedCommands;
     use sabi::{uses, DataAcc, DataHub};
-    use sabi_redis::{RedisSentinelDataConn, RedisSentinelDataSrc};
+    use sabi_redis::sentinel::{RedisSentinelDataConn, RedisSentinelDataSrc};
+
+    uses!(
+        "redis_sentinel",
+        RedisSentinelDataSrc::new(
+            vec![
+                "redis://127.0.0.1:26479",
+                "redis://127.0.0.1:26480",
+                "redis://127.0.0.1:26481",
+            ],
+            "mymaster",
+        )
+    );
+
+    #[test]
+    fn test() -> errs::Result<()> {
+        let _auto_shutdown = sabi::setup()?;
+
+        my_app()
+    }
+
+    fn my_app() -> errs::Result<()> {
+        let mut data = DataHub::new();
+        data.txn(my_logic)
+    }
+
+    fn my_logic(data: &mut impl MyData) -> errs::Result<()> {
+        let greeting = data.get_greeting()?;
+        data.say_greeting(&greeting)
+    }
 
     #[overridable]
     trait MyData {
@@ -45,33 +74,4 @@ mod integration_tests_of_sentinel_sync {
 
     #[override_with(GettingDataAcc, RedisSayingDataAcc)]
     impl MyData for DataHub {}
-
-    fn my_logic(data: &mut impl MyData) -> errs::Result<()> {
-        let greeting = data.get_greeting()?;
-        data.say_greeting(&greeting)
-    }
-
-    fn my_app() -> errs::Result<()> {
-        let mut data = DataHub::new();
-        data.txn(my_logic)
-    }
-
-    #[test]
-    fn test() -> errs::Result<()> {
-        uses(
-          "redis_sentinel",
-          RedisSentinelDataSrc::new(
-            vec![
-              "redis://127.0.0.1:26479",
-              "redis://127.0.0.1:26480",
-              "redis://127.0.0.1:26481",
-            ],
-            "mymaster",
-          ),
-        )?;
-
-        let _auto_shutdown = sabi::setup()?;
-
-        my_app()
-    }
 }

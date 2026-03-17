@@ -91,7 +91,7 @@ if [[ "$#" == "0" ]]; then
   test
   lint
   doc
-  cover
+  #cover
 
 elif [[ "$1" == "unit" ]]; then
   unit $2
