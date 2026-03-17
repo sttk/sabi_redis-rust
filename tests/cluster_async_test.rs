@@ -1,10 +1,35 @@
 #[cfg(feature = "cluster-async")]
 #[cfg(test)]
-mod integration_tests_of_cluster_async {
+mod integration_tests {
     use override_macro::{overridable, override_with};
     use redis::AsyncCommands;
     use sabi::tokio::{logic, setup_async, uses, DataAcc, DataHub};
-    use sabi_redis::{RedisClusterAsyncDataConn, RedisClusterAsyncDataSrc};
+    use sabi_redis::cluster::{RedisClusterAsyncDataConn, RedisClusterAsyncDataSrc};
+
+    uses!(
+        "redis_cluster",
+        RedisClusterAsyncDataSrc::new(vec![
+            "redis://127.0.0.1:7000",
+            "redis://127.0.0.1:7001",
+            "redis://127.0.0.1:7002",
+        ])
+    );
+
+    #[tokio::test]
+    async fn test() -> errs::Result<()> {
+        let _auto_shutdown = setup_async().await?;
+        my_app_async().await
+    }
+
+    async fn my_app_async() -> errs::Result<()> {
+        let mut data = DataHub::new();
+        data.txn_async(logic!(my_logic_async)).await
+    }
+
+    async fn my_logic_async(data: &mut impl MyDataAsync) -> errs::Result<()> {
+        let greeting = data.get_greeting_async().await?;
+        data.say_greeting_async(&greeting).await
+    }
 
     #[overridable]
     trait MyDataAsync {
@@ -51,27 +76,4 @@ mod integration_tests_of_cluster_async {
 
     #[override_with(GettingAsyncDataAcc, RedisAsyncSayingDataAcc)]
     impl MyDataAsync for DataHub {}
-
-    async fn my_logic_async(data: &mut impl MyDataAsync) -> errs::Result<()> {
-        let greeting = data.get_greeting_async().await?;
-        data.say_greeting_async(&greeting).await
-    }
-
-    async fn my_app_async() -> errs::Result<()> {
-        let mut data = DataHub::new();
-        data.txn_async(logic!(my_logic_async)).await
-    }
-
-    #[tokio::test]
-    async fn test() -> errs::Result<()> {
-        uses("redis_cluster", RedisClusterAsyncDataSrc::new(
-          vec![
-            "redis://127.0.0.1:7000",
-            "redis://127.0.0.1:7001",
-            "redis://127.0.0.1:7002",
-          ],
-        ))?;
-        let _auto_shutdown = setup_async().await?;
-        my_app_async().await
-    }
 }

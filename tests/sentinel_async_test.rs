@@ -1,10 +1,39 @@
 #[cfg(feature = "sentinel-async")]
 #[cfg(test)]
-mod integration_tests_of_sentinel_async {
+mod integration_tests {
     use override_macro::{overridable, override_with};
     use redis::AsyncCommands;
     use sabi::tokio::{logic, setup_async, uses, DataAcc, DataHub};
-    use sabi_redis::{RedisSentinelAsyncDataConn, RedisSentinelAsyncDataSrc};
+    use sabi_redis::sentinel::{RedisSentinelAsyncDataConn, RedisSentinelAsyncDataSrc};
+
+    uses!(
+        "redis_sentinel",
+        RedisSentinelAsyncDataSrc::new(
+            vec![
+                "redis://127.0.0.1:26479",
+                "redis://127.0.0.1:26480",
+                "redis://127.0.0.1:26481",
+            ],
+            "mymaster",
+        )
+    );
+
+    #[tokio::test]
+    async fn test() -> errs::Result<()> {
+        let _auto_shutdown = setup_async().await?;
+
+        my_app_async().await
+    }
+
+    async fn my_app_async() -> errs::Result<()> {
+        let mut data = DataHub::new();
+        data.txn_async(logic!(my_logic_async)).await
+    }
+
+    async fn my_logic_async(data: &mut impl MyDataAsync) -> errs::Result<()> {
+        let greeting = data.get_greeting_async().await?;
+        data.say_greeting_async(&greeting).await
+    }
 
     #[overridable]
     trait MyDataAsync {
@@ -51,28 +80,4 @@ mod integration_tests_of_sentinel_async {
 
     #[override_with(GettingAsyncDataAcc, RedisAsyncSayingDataAcc)]
     impl MyDataAsync for DataHub {}
-
-    async fn my_logic_async(data: &mut impl MyDataAsync) -> errs::Result<()> {
-        let greeting = data.get_greeting_async().await?;
-        data.say_greeting_async(&greeting).await
-    }
-
-    async fn my_app_async() -> errs::Result<()> {
-        let mut data = DataHub::new();
-        data.txn_async(logic!(my_logic_async)).await
-    }
-
-    #[tokio::test]
-    async fn test() -> errs::Result<()> {
-        uses("redis_sentinel", RedisSentinelAsyncDataSrc::new(
-          vec![
-            "redis://127.0.0.1:26479",
-            "redis://127.0.0.1:26480",
-            "redis://127.0.0.1:26481",
-          ],
-          "mymaster",
-        ))?;
-        let _auto_shutdown = setup_async().await?;
-        my_app_async().await
-    }
 }

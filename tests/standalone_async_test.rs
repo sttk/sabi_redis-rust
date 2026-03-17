@@ -1,15 +1,33 @@
 #[cfg(feature = "standalone-async")]
 #[cfg(test)]
-mod integration_tests_of_standalone_async {
+mod integration_tests {
     use override_macro::{overridable, override_with};
     use redis::AsyncCommands;
     use sabi::tokio::{logic, setup_async, uses, DataAcc, DataHub};
     use sabi_redis::{RedisAsyncDataConn, RedisAsyncDataSrc};
 
+    uses!("redis", RedisAsyncDataSrc::new("redis://127.0.0.1:6379/11"));
+
+    #[tokio::test]
+    async fn test() -> errs::Result<()> {
+        let _auto_shutdown = setup_async().await?;
+        my_app_async().await
+    }
+
+    async fn my_app_async() -> errs::Result<()> {
+        let mut data = DataHub::new();
+        data.txn_async(logic!(my_logic_async)).await
+    }
+
     #[overridable]
     trait MyDataAsync {
         async fn get_greeting_async(&mut self) -> errs::Result<String>;
         async fn say_greeting_async(&mut self, greeting: &str) -> errs::Result<()>;
+    }
+
+    async fn my_logic_async(data: &mut impl MyDataAsync) -> errs::Result<()> {
+        let greeting = data.get_greeting_async().await?;
+        data.say_greeting_async(&greeting).await
     }
 
     #[overridable]
@@ -51,21 +69,4 @@ mod integration_tests_of_standalone_async {
 
     #[override_with(GettingAsyncDataAcc, RedisAsyncSayingDataAcc)]
     impl MyDataAsync for DataHub {}
-
-    async fn my_logic_async(data: &mut impl MyDataAsync) -> errs::Result<()> {
-        let greeting = data.get_greeting_async().await?;
-        data.say_greeting_async(&greeting).await
-    }
-
-    async fn my_app_async() -> errs::Result<()> {
-        let mut data = DataHub::new();
-        data.txn_async(logic!(my_logic_async)).await
-    }
-
-    #[tokio::test]
-    async fn test() -> errs::Result<()> {
-        uses("redis", RedisAsyncDataSrc::new("redis://127.0.0.1:6379/11"))?;
-        let _auto_shutdown = setup_async().await?;
-        my_app_async().await
-    }
 }
