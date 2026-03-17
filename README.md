@@ -58,7 +58,7 @@ execute a simple command.
 ```rust
 use errs;
 use override_macro::{overridable, override_with};
-use redis::TypedCommands;
+use redis::Commands;
 use sabi::{uses, setup};
 use sabi_redis::{RedisDataSrc, RedisDataConn};
 
@@ -211,7 +211,7 @@ impl MyData for sabi::tokio::DataHub {}
 ```rust
 use errs;
 use sabi::{uses, setup};
-use sabi_redis::RedisSentinelDataSrc;
+use sabi_redis::sentinel::RedisSentinelDataSrc;
 
 fn main() -> Result<(), errs::Err> {
     uses(
@@ -238,7 +238,7 @@ fn main() -> Result<(), errs::Err> {
 ```rust
 use errs;
 use sabi::{uses, setup_async};
-use sabi_redis::RedisSentinelAsyncDataSrc;
+use sabi_redis::sentinel::RedisSentinelAsyncDataSrc;
 
 #[tokio::main]
 async fn main() -> Result<(), errs::Err> {
@@ -266,7 +266,7 @@ async fn main() -> Result<(), errs::Err> {
 ```rust
 use errs;
 use sabi::{uses, setup};
-use sabi_redis::RedisClusterDataSrc;
+use sabi_redis::cluster::RedisClusterDataSrc;
 
 fn main() -> Result<(), errs::Err> {
     uses(
@@ -292,7 +292,7 @@ fn main() -> Result<(), errs::Err> {
 ```rust
 use errs;
 use sabi::{uses, setup_async};
-use sabi_redis::RedisClusterAsyncDataSrc;
+use sabi_redis::cluster::RedisClusterAsyncDataSrc;
 
 #[tokio::main]
 async fn main() -> Result<(), errs::Err> {
