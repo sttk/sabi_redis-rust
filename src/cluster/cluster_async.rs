@@ -9,16 +9,41 @@ use sabi::tokio::{AsyncGroup, DataConn, DataSrc};
 use std::future::Future;
 use std::{mem, pin};
 
+/// The error type for asynchronous Redis Cluster operations.
 #[derive(Debug)]
 pub enum RedisClusterAsyncError {
+    /// Indicates that the Redis Cluster data source has not been set up yet.
     NotSetupYet,
+    /// Indicates that the Redis Cluster data source has already been set up.
     AlreadySetup,
+    /// Indicates a failure to build a Redis connection pool.
     FailToBuildPool,
+    /// Indicates a failure to get a connection from the pool.
     FailToGetConnectionFromPool,
 }
 
 type BoxedFuture = pin::Pin<Box<dyn Future<Output = errs::Result<()>> + Send + 'static>>;
 
+/// A data connection for a Redis Cluster, providing asynchronous operations.
+///
+/// This structure holds an asynchronous connection pool for a Redis Cluster and allows 
+/// for adding hooks (pre-commit, post-commit, and force-back) that are executed during 
+/// the lifecycle of an asynchronous data operation managed by `sabi`.
+///
+/// # Examples
+/// ```
+/// use sabi_redis::RedisClusterAsyncDataConn;
+/// use redis::AsyncCommands;
+/// use sabi::tokio::DataAcc;
+///
+/// trait MyDataAcc: DataAcc {
+///     async fn set_value(&mut self, key: &str, val: &str) -> errs::Result<()> {
+///         let data_conn = self.get_data_conn_async::<RedisClusterAsyncDataConn>("redis").await?;
+///         let mut conn = data_conn.get_connection_async().await?;
+///         conn.set(key, val).await.map_err(|e| errs::Err::with_source("fail", e))
+///     }
+/// }
+/// ```
 pub struct RedisClusterAsyncDataConn {
     pool: Pool,
     pre_commit_vec: Vec<BoxedFuture>,
@@ -36,12 +61,25 @@ impl RedisClusterAsyncDataConn {
         }
     }
 
+    /// Gets an asynchronous cluster connection from the pool.
+    ///
+    /// # Returns
+    /// Returns a `Result` containing a `Connection` on success, 
+    /// or a `RedisClusterAsyncError::FailToGetConnectionFromPool` wrapped in `errs::Err` on failure.
     pub async fn get_connection_async(&mut self) -> errs::Result<Connection> {
         self.pool.get().await.map_err(|e| {
             errs::Err::with_source(RedisClusterAsyncError::FailToGetConnectionFromPool, e)
         })
     }
 
+    /// Gets an asynchronous cluster connection from the pool with specific timeouts.
+    ///
+    /// # Arguments
+    /// * `timeouts` - A `Timeouts` configuration for getting a connection.
+    ///
+    /// # Returns
+    /// Returns a `Result` containing a `Connection` on success, 
+    /// or a `RedisClusterAsyncError::FailToGetConnectionFromPool` wrapped in `errs::Err` on failure.
     pub async fn get_connection_with_timeout_async(
         &mut self,
         timeouts: Timeouts,
@@ -51,6 +89,10 @@ impl RedisClusterAsyncDataConn {
         })
     }
 
+    /// Adds an asynchronous function to be executed before a commit occurs.
+    ///
+    /// # Arguments
+    /// * `f` - An async closure or function that takes a `Connection` and returns a `Future`.
     pub async fn add_pre_commit_async<F, Fut>(&mut self, mut f: F)
     where
         F: FnMut(Connection) -> Fut,
@@ -70,6 +112,10 @@ impl RedisClusterAsyncDataConn {
         }
     }
 
+    /// Adds an asynchronous function to be executed after a successful commit.
+    ///
+    /// # Arguments
+    /// * `f` - An async closure or function that takes a `Connection` and returns a `Future`.
     pub async fn add_post_commit_async<F, Fut>(&mut self, mut f: F)
     where
         F: FnMut(Connection) -> Fut,
@@ -89,6 +135,10 @@ impl RedisClusterAsyncDataConn {
         }
     }
 
+    /// Adds an asynchronous function to be executed when a rollback occurs.
+    ///
+    /// # Arguments
+    /// * `f` - An async closure or function that takes a `Connection` and returns a `Future`.
     pub async fn add_force_back_async<F, Fut>(&mut self, mut f: F)
     where
         F: FnMut(Connection) -> Fut,
@@ -158,6 +208,22 @@ impl DataConn for RedisClusterAsyncDataConn {
     }
 }
 
+/// A data source for Redis Cluster, used to initialize and provide `RedisClusterAsyncDataConn` instances.
+///
+/// This struct implements the `DataSrc` trait from the `sabi` library for asynchronous operations.
+///
+/// # Examples
+/// ```
+/// use sabi_redis::RedisClusterAsyncDataSrc;
+/// use sabi::tokio::DataHub;
+///
+/// let mut data = DataHub::new();
+/// data.uses("redis", RedisClusterAsyncDataSrc::new(vec![
+///     "redis://127.0.0.1:7000/",
+///     "redis://127.0.0.1:7001/",
+///     "redis://127.0.0.1:7002/",
+/// ]));
+/// ```
 pub struct RedisClusterAsyncDataSrc {
     pool: Option<RedisPool>,
 }
@@ -168,6 +234,13 @@ enum RedisPool {
 }
 
 impl RedisClusterAsyncDataSrc {
+    /// Creates a new `RedisClusterAsyncDataSrc` with the given cluster node addresses.
+    ///
+    /// # Arguments
+    /// * `addrs` - An iterator of items that can be converted into Redis connection info.
+    ///
+    /// # Returns
+    /// Returns a new instance of `RedisClusterAsyncDataSrc`.
     pub fn new<I, S>(addrs: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -184,6 +257,14 @@ impl RedisClusterAsyncDataSrc {
         }
     }
 
+    /// Creates a new `RedisClusterAsyncDataSrc` with cluster node addresses and a custom pool configuration.
+    ///
+    /// # Arguments
+    /// * `addrs` - An iterator of cluster node addresses.
+    /// * `pool_config` - A `PoolConfig` for the underlying connection pool.
+    ///
+    /// # Returns
+    /// Returns a new instance of `RedisClusterAsyncDataSrc`.
     pub fn with_pool_config<I, S>(addrs: I, pool_config: PoolConfig) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -200,6 +281,13 @@ impl RedisClusterAsyncDataSrc {
         }
     }
 
+    /// Creates a new `RedisClusterAsyncDataSrc` with a complete `Config`.
+    ///
+    /// # Arguments
+    /// * `cfg` - A `deadpool_redis::cluster::Config` object.
+    ///
+    /// # Returns
+    /// Returns a new instance of `RedisClusterAsyncDataSrc`.
     pub fn with_config(cfg: Config) -> Self {
         Self {
             pool: Some(RedisPool::Config(Box::new(cfg))),

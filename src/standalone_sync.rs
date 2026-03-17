@@ -9,16 +9,41 @@ use sabi::{AsyncGroup, DataConn, DataSrc};
 use std::fmt::Debug;
 use std::{mem, time};
 
+/// The error type for synchronous Redis operations.
 #[derive(Debug)]
 pub enum RedisSyncError {
+    /// Indicates that the Redis data source has not been set up yet.
     NotSetupYet,
+    /// Indicates that the Redis data source has already been set up.
     AlreadySetup,
+    /// Indicates a failure to open a Redis client.
     FailToOpenClient,
+    /// Indicates a failure to build a Redis connection pool.
     FailToBuildPool,
+    /// Indicates a failure to get a connection from the pool.
     FailToGetConnectionFromPool,
 }
 
 #[allow(clippy::type_complexity)]
+/// A data connection for a standalone Redis server, providing synchronous operations.
+///
+/// This structure holds a connection pool and allows for adding hooks (pre-commit, post-commit, 
+/// and force-back) that are executed during the lifecycle of a data operation managed by `sabi`.
+///
+/// # Examples
+/// ```
+/// use sabi_redis::RedisDataConn;
+/// use redis::Commands;
+/// use sabi::DataAcc;
+///
+/// trait MyDataAcc: DataAcc {
+///     fn set_value(&mut self, key: &str, val: &str) -> errs::Result<()> {
+///         let data_conn = self.get_data_conn::<RedisDataConn>("redis")?;
+///         let mut conn = data_conn.get_connection()?;
+///         conn.set(key, val).map_err(|e| errs::Err::with_source("fail", e))
+///     }
+/// }
+/// ```
 pub struct RedisDataConn {
     pool: Pool<Client>,
     pre_commit_vec: Vec<Box<dyn FnMut(&mut Connection) -> errs::Result<()>>>,
@@ -36,12 +61,25 @@ impl RedisDataConn {
         }
     }
 
+    /// Gets a connection from the pool.
+    ///
+    /// # Returns
+    /// Returns a `Result` containing a `PooledConnection<Client>` on success, 
+    /// or a `RedisSyncError::FailToGetConnectionFromPool` wrapped in `errs::Err` on failure.
     pub fn get_connection(&mut self) -> errs::Result<PooledConnection<Client>> {
         self.pool
             .get()
             .map_err(|e| errs::Err::with_source(RedisSyncError::FailToGetConnectionFromPool, e))
     }
 
+    /// Gets a connection from the pool with a specific timeout.
+    ///
+    /// # Arguments
+    /// * `timeout` - A `Duration` to wait for a connection before failing.
+    ///
+    /// # Returns
+    /// Returns a `Result` containing a `PooledConnection<Client>` on success, 
+    /// or a `RedisSyncError::FailToGetConnectionFromPool` wrapped in `errs::Err` on failure.
     pub fn get_connection_with_timeout(
         &self,
         timeout: time::Duration,
@@ -51,10 +89,18 @@ impl RedisDataConn {
             .map_err(|e| errs::Err::with_source(RedisSyncError::FailToGetConnectionFromPool, e))
     }
 
+    /// Tries to get a connection from the pool immediately without waiting.
+    ///
+    /// # Returns
+    /// Returns `Some(PooledConnection<Client>)` if a connection is available, otherwise `None`.
     pub fn try_get_connection(&self) -> Option<PooledConnection<Client>> {
         self.pool.try_get()
     }
 
+    /// Adds a function to be executed before a commit occurs in the `sabi` lifecycle.
+    ///
+    /// # Arguments
+    /// * `f` - A closure or function that takes a mutable reference to a `Connection` and returns a `Result`.
     pub fn add_pre_commit<F>(&mut self, f: F)
     where
         F: FnMut(&mut Connection) -> errs::Result<()> + 'static,
@@ -62,6 +108,10 @@ impl RedisDataConn {
         self.pre_commit_vec.push(Box::new(f));
     }
 
+    /// Adds a function to be executed after a successful commit in the `sabi` lifecycle.
+    ///
+    /// # Arguments
+    /// * `f` - A closure or function that takes a mutable reference to a `Connection` and returns a `Result`.
     pub fn add_post_commit<F>(&mut self, f: F)
     where
         F: FnMut(&mut Connection) -> errs::Result<()> + 'static,
@@ -69,6 +119,10 @@ impl RedisDataConn {
         self.post_commit_vec.push(Box::new(f));
     }
 
+    /// Adds a function to be executed when a rollback or forced recovery is triggered.
+    ///
+    /// # Arguments
+    /// * `f` - A closure or function that takes a mutable reference to a `Connection` and returns a `Result`.
     pub fn add_force_back<F>(&mut self, f: F)
     where
         F: FnMut(&mut Connection) -> errs::Result<()> + 'static,
@@ -136,6 +190,21 @@ impl DataConn for RedisDataConn {
     fn close(&mut self) {}
 }
 
+/// A data source for standalone Redis, used to initialize and provide `RedisDataConn` instances.
+///
+/// This struct implements the `DataSrc` trait from the `sabi` library.
+///
+/// # Examples
+/// ```
+/// use sabi_redis::RedisDataSrc;
+/// use sabi::DataHub;
+///
+/// let mut data = DataHub::new();
+/// data.uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/0"));
+/// ```
+///
+/// # Type Parameters
+/// * `T` - A type that can be converted into Redis connection info.
 pub struct RedisDataSrc<T>
 where
     T: IntoConnectionInfo + Sized + Debug,
@@ -155,12 +224,27 @@ impl<T> RedisDataSrc<T>
 where
     T: IntoConnectionInfo + Sized + Debug,
 {
+    /// Creates a new `RedisDataSrc` with the given Redis address.
+    ///
+    /// # Arguments
+    /// * `addr` - The Redis connection address (e.g., a URL string).
+    ///
+    /// # Returns
+    /// Returns a new instance of `RedisDataSrc`.
     pub fn new(addr: T) -> Self {
         Self {
             pool: Some(RedisPool::Config(Box::new((addr, Pool::builder())))),
         }
     }
 
+    /// Creates a new `RedisDataSrc` with the given Redis address and a custom pool builder.
+    ///
+    /// # Arguments
+    /// * `addr` - The Redis connection address.
+    /// * `pool_builder` - A pre-configured `r2d2::Builder`.
+    ///
+    /// # Returns
+    /// Returns a new instance of `RedisDataSrc`.
     pub fn with_pool_builder(addr: T, pool_builder: Builder<Client>) -> Self {
         Self {
             pool: Some(RedisPool::Config(Box::new((addr, pool_builder)))),

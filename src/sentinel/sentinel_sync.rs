@@ -13,18 +13,46 @@ use sabi::{AsyncGroup, DataConn, DataSrc};
 use std::fmt::Debug;
 use std::{mem, time};
 
+/// The error type for synchronous Redis Sentinel operations.
 #[derive(Debug)]
 pub enum RedisSentinelSyncError {
+    /// Indicates that the Redis Sentinel data source has not been set up yet.
     NotSetupYet,
+    /// Indicates that the Redis Sentinel data source has already been set up.
     AlreadySetup,
+    /// Indicates a failure to parse connection addresses.
     FailToParseConnectionAddrs,
+    /// Indicates a failure to create a Sentinel client builder.
     FailToCreateSentinelClientBuilder,
+    /// Indicates a failure to build a Redis connection pool.
     FailToBuildPool,
+    /// Indicates a failure to build a Redis Sentinel client.
     FailToBuildSentinelClient,
+    /// Indicates a failure to get a connection from the pool.
     FailToGetConnectionFromPool,
 }
 
 #[allow(clippy::type_complexity)]
+/// A data connection for Redis Sentinel, providing synchronous operations.
+///
+/// This structure holds a connection pool for a Redis Sentinel-managed setup 
+/// and allows for adding hooks (pre-commit, post-commit, and force-back) 
+/// that are executed during the lifecycle of a data operation managed by `sabi`.
+///
+/// # Examples
+/// ```
+/// use sabi_redis::RedisSentinelDataConn;
+/// use redis::Commands;
+/// use sabi::DataAcc;
+///
+/// trait MyDataAcc: DataAcc {
+///     fn set_value(&mut self, key: &str, val: &str) -> errs::Result<()> {
+///         let data_conn = self.get_data_conn::<RedisSentinelDataConn>("redis")?;
+///         let mut conn = data_conn.get_connection()?;
+///         conn.set(key, val).map_err(|e| errs::Err::with_source("fail", e))
+///     }
+/// }
+/// ```
 pub struct RedisSentinelDataConn {
     pool: Pool<LockedSentinelClient>,
     pre_commit_vec: Vec<Box<dyn FnMut(&mut Connection) -> errs::Result<()>>>,
@@ -42,12 +70,25 @@ impl RedisSentinelDataConn {
         }
     }
 
+    /// Gets a Sentinel-managed connection from the pool.
+    ///
+    /// # Returns
+    /// Returns a `Result` containing a `PooledConnection<LockedSentinelClient>` on success, 
+    /// or a `RedisSentinelSyncError::FailToGetConnectionFromPool` wrapped in `errs::Err` on failure.
     pub fn get_connection(&mut self) -> errs::Result<PooledConnection<LockedSentinelClient>> {
         self.pool.get().map_err(|e| {
             errs::Err::with_source(RedisSentinelSyncError::FailToGetConnectionFromPool, e)
         })
     }
 
+    /// Gets a Sentinel-managed connection from the pool with a specific timeout.
+    ///
+    /// # Arguments
+    /// * `timeout` - A `Duration` to wait for a connection before failing.
+    ///
+    /// # Returns
+    /// Returns a `Result` containing a `PooledConnection<LockedSentinelClient>` on success, 
+    /// or a `RedisSentinelSyncError::FailToGetConnectionFromPool` wrapped in `errs::Err` on failure.
     pub fn get_connection_with_timeout(
         &mut self,
         timeout: time::Duration,
@@ -57,10 +98,18 @@ impl RedisSentinelDataConn {
         })
     }
 
+    /// Tries to get a Sentinel-managed connection from the pool immediately without waiting.
+    ///
+    /// # Returns
+    /// Returns `Some(PooledConnection<LockedSentinelClient>)` if a connection is available, otherwise `None`.
     pub fn try_get_connection(&self) -> Option<PooledConnection<LockedSentinelClient>> {
         self.pool.try_get()
     }
 
+    /// Adds a function to be executed before a commit occurs in the `sabi` lifecycle.
+    ///
+    /// # Arguments
+    /// * `f` - A closure or function that takes a mutable reference to a `Connection` and returns a `Result`.
     pub fn add_pre_commit<F>(&mut self, f: F)
     where
         F: FnMut(&mut Connection) -> errs::Result<()> + 'static,
@@ -68,6 +117,10 @@ impl RedisSentinelDataConn {
         self.pre_commit_vec.push(Box::new(f));
     }
 
+    /// Adds a function to be executed after a successful commit in the `sabi` lifecycle.
+    ///
+    /// # Arguments
+    /// * `f` - A closure or function that takes a mutable reference to a `Connection` and returns a `Result`.
     pub fn add_post_commit<F>(&mut self, f: F)
     where
         F: FnMut(&mut Connection) -> errs::Result<()> + 'static,
@@ -75,6 +128,10 @@ impl RedisSentinelDataConn {
         self.post_commit_vec.push(Box::new(f));
     }
 
+    /// Adds a function to be executed when a rollback or forced recovery is triggered.
+    ///
+    /// # Arguments
+    /// * `f` - A closure or function that takes a mutable reference to a `Connection` and returns a `Result`.
     pub fn add_force_back<F>(&mut self, f: F)
     where
         F: FnMut(&mut Connection) -> errs::Result<()> + 'static,
@@ -144,6 +201,28 @@ impl DataConn for RedisSentinelDataConn {
     fn close(&mut self) {}
 }
 
+/// A data source for Redis Sentinel, used to initialize and provide `RedisSentinelDataConn` instances.
+///
+/// This struct implements the `DataSrc` trait from the `sabi` library.
+///
+/// # Examples
+/// ```
+/// use sabi_redis::RedisSentinelDataSrc;
+/// use sabi::DataHub;
+///
+/// let mut data = DataHub::new();
+/// data.uses("redis", RedisSentinelDataSrc::new(
+///     vec![
+///         "redis://127.0.0.1:26479",
+///         "redis://127.0.0.1:26480",
+///         "redis://127.0.0.1:26481",
+///     ],
+///     "mymaster",
+/// ));
+/// ```
+///
+/// # Type Parameters
+/// * `T` - A type that can be converted into Redis connection info.
 pub struct RedisSentinelDataSrc<T>
 where
     T: redis::IntoConnectionInfo,
@@ -173,6 +252,14 @@ impl<T> RedisSentinelDataSrc<T>
 where
     T: redis::IntoConnectionInfo,
 {
+    /// Creates a new `RedisSentinelDataSrc` with Sentinel addresses and a service name.
+    ///
+    /// # Arguments
+    /// * `addrs` - A vector of items that can be converted into Redis connection info (Sentinel addresses).
+    /// * `service_name` - The name of the Redis service to monitor.
+    ///
+    /// # Returns
+    /// Returns a new instance of `RedisSentinelDataSrc`.
     pub fn new(addrs: Vec<T>, service_name: impl AsRef<str>) -> Self {
         Self {
             pool: Some(RedisPool::Client(Box::new((
@@ -185,6 +272,16 @@ where
         }
     }
 
+    /// Creates a new `RedisSentinelDataSrc` with specific Sentinel client parameters.
+    ///
+    /// # Arguments
+    /// * `addrs` - A vector of Sentinel addresses.
+    /// * `service_name` - The name of the Redis service.
+    /// * `node_conn_info` - Connection information for the Redis nodes.
+    /// * `server_type` - The type of server to connect to (e.g., Master or Slave).
+    ///
+    /// # Returns
+    /// Returns a new instance of `RedisSentinelDataSrc`.
     pub fn with_client_params(
         addrs: Vec<T>,
         service_name: impl AsRef<str>,
@@ -202,6 +299,17 @@ where
         }
     }
 
+    /// Creates a new `RedisSentinelDataSrc` with Sentinel client parameters and a custom pool builder.
+    ///
+    /// # Arguments
+    /// * `addrs` - A vector of Sentinel addresses.
+    /// * `service_name` - The name of the Redis service.
+    /// * `node_conn_info` - Connection information for the Redis nodes.
+    /// * `server_type` - The type of server to connect to.
+    /// * `pool_builder` - A `r2d2::Builder` for Configuring the connection pool.
+    ///
+    /// # Returns
+    /// Returns a new instance of `RedisSentinelDataSrc`.
     pub fn with_client_params_and_pool_builder(
         addrs: Vec<T>,
         service_name: impl AsRef<str>,
@@ -222,6 +330,13 @@ where
 }
 
 impl RedisSentinelDataSrc<&'static str> {
+    /// Creates a new `RedisSentinelDataSrc` with a pre-configured `SentinelClientBuilder`.
+    ///
+    /// # Arguments
+    /// * `client_builder` - A `SentinelClientBuilder` for the Sentinel setup.
+    ///
+    /// # Returns
+    /// Returns a new instance of `RedisSentinelDataSrc`.
     pub fn with_client_builder(client_builder: SentinelClientBuilder) -> Self {
         Self {
             pool: Some(RedisPool::Builder(Box::new((
@@ -231,6 +346,14 @@ impl RedisSentinelDataSrc<&'static str> {
         }
     }
 
+    /// Creates a new `RedisSentinelDataSrc` with a Sentinel client builder and a custom pool builder.
+    ///
+    /// # Arguments
+    /// * `client_builder` - A `SentinelClientBuilder` for the Sentinel setup.
+    /// * `pool_builder` - A `r2d2::Builder` for Configuring the connection pool.
+    ///
+    /// # Returns
+    /// Returns a new instance of `RedisSentinelDataSrc`.
     pub fn with_client_builder_and_pool_builder(
         client_builder: SentinelClientBuilder,
         pool_builder: Builder<LockedSentinelClient>,

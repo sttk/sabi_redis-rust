@@ -11,16 +11,42 @@ use redis::IntoConnectionInfo;
 use std::fmt::Debug;
 use std::{mem, time};
 
+/// The error type for synchronous Redis Cluster operations.
 #[derive(Debug)]
 pub enum RedisClusterSyncError {
+    /// Indicates that the Redis Cluster data source has not been set up yet.
     NotSetupYet,
+    /// Indicates that the Redis Cluster data source has already been set up.
     AlreadySetup,
+    /// Indicates a failure to get a connection from the pool.
     FailToGetConnectionFromPool,
+    /// Indicates a failure to build a Redis Cluster client.
     FailToBuildClient,
+    /// Indicates a failure to build a Redis connection pool.
     FailToBuildPool,
 }
 
 #[allow(clippy::type_complexity)]
+/// A data connection for a Redis Cluster, providing synchronous operations.
+///
+/// This structure holds a connection pool for a Redis Cluster and allows for adding hooks 
+/// (pre-commit, post-commit, and force-back) that are executed during the lifecycle 
+/// of a data operation managed by `sabi`.
+///
+/// # Examples
+/// ```
+/// use sabi_redis::RedisClusterDataConn;
+/// use redis::Commands;
+/// use sabi::DataAcc;
+///
+/// trait MyDataAcc: DataAcc {
+///     fn set_value(&mut self, key: &str, val: &str) -> errs::Result<()> {
+///         let data_conn = self.get_data_conn::<RedisClusterDataConn>("redis")?;
+///         let mut conn = data_conn.get_connection()?;
+///         conn.set(key, val).map_err(|e| errs::Err::with_source("fail", e))
+///     }
+/// }
+/// ```
 pub struct RedisClusterDataConn {
     pool: Pool<ClusterClient>,
     pre_commit_vec: Vec<Box<dyn FnMut(&mut ClusterConnection) -> errs::Result<()>>>,
@@ -38,12 +64,25 @@ impl RedisClusterDataConn {
         }
     }
 
+    /// Gets a cluster connection from the pool.
+    ///
+    /// # Returns
+    /// Returns a `Result` containing a `PooledConnection<ClusterClient>` on success, 
+    /// or a `RedisClusterSyncError::FailToGetConnectionFromPool` wrapped in `errs::Err` on failure.
     pub fn get_connection(&mut self) -> errs::Result<PooledConnection<ClusterClient>> {
         self.pool.get().map_err(|e| {
             errs::Err::with_source(RedisClusterSyncError::FailToGetConnectionFromPool, e)
         })
     }
 
+    /// Gets a cluster connection from the pool with a specific timeout.
+    ///
+    /// # Arguments
+    /// * `timeout` - A `Duration` to wait for a connection before failing.
+    ///
+    /// # Returns
+    /// Returns a `Result` containing a `PooledConnection<ClusterClient>` on success, 
+    /// or a `RedisClusterSyncError::FailToGetConnectionFromPool` wrapped in `errs::Err` on failure.
     pub fn get_connection_with_timeout(
         &self,
         timeout: time::Duration,
@@ -53,10 +92,18 @@ impl RedisClusterDataConn {
         })
     }
 
+    /// Tries to get a cluster connection from the pool immediately without waiting.
+    ///
+    /// # Returns
+    /// Returns `Some(PooledConnection<ClusterClient>)` if a connection is available, otherwise `None`.
     pub fn try_get_connection(&self) -> Option<PooledConnection<ClusterClient>> {
         self.pool.try_get()
     }
 
+    /// Adds a function to be executed before a commit occurs in the `sabi` lifecycle.
+    ///
+    /// # Arguments
+    /// * `f` - A closure or function that takes a mutable reference to a `ClusterConnection` and returns a `Result`.
     pub fn add_pre_commit<F>(&mut self, f: F)
     where
         F: FnMut(&mut ClusterConnection) -> errs::Result<()> + 'static,
@@ -64,6 +111,10 @@ impl RedisClusterDataConn {
         self.pre_commit_vec.push(Box::new(f));
     }
 
+    /// Adds a function to be executed after a successful commit in the `sabi` lifecycle.
+    ///
+    /// # Arguments
+    /// * `f` - A closure or function that takes a mutable reference to a `ClusterConnection` and returns a `Result`.
     pub fn add_post_commit<F>(&mut self, f: F)
     where
         F: FnMut(&mut ClusterConnection) -> errs::Result<()> + 'static,
@@ -71,6 +122,10 @@ impl RedisClusterDataConn {
         self.post_commit_vec.push(Box::new(f));
     }
 
+    /// Adds a function to be executed when a rollback or forced recovery is triggered.
+    ///
+    /// # Arguments
+    /// * `f` - A closure or function that takes a mutable reference to a `ClusterConnection` and returns a `Result`.
     pub fn add_force_back<F>(&mut self, f: F)
     where
         F: FnMut(&mut ClusterConnection) -> errs::Result<()> + 'static,
@@ -140,6 +195,22 @@ impl DataConn for RedisClusterDataConn {
     fn close(&mut self) {}
 }
 
+/// A data source for Redis Cluster, used to initialize and provide `RedisClusterDataConn` instances.
+///
+/// This struct implements the `DataSrc` trait from the `sabi` library.
+///
+/// # Examples
+/// ```
+/// use sabi_redis::RedisClusterDataSrc;
+/// use sabi::DataHub;
+///
+/// let mut data = DataHub::new();
+/// data.uses("redis", RedisClusterDataSrc::new(vec![
+///     "redis://127.0.0.1:7000/",
+///     "redis://127.0.0.1:7001/",
+///     "redis://127.0.0.1:7002/",
+/// ]));
+/// ```
 pub struct RedisClusterDataSrc {
     pool: Option<RedisPool>,
 }
@@ -150,6 +221,13 @@ enum RedisPool {
 }
 
 impl RedisClusterDataSrc {
+    /// Creates a new `RedisClusterDataSrc` with the given cluster node addresses.
+    ///
+    /// # Arguments
+    /// * `addrs` - An iterator of items that can be converted into Redis connection info.
+    ///
+    /// # Returns
+    /// Returns a new instance of `RedisClusterDataSrc`.
     pub fn new<I, T>(addrs: I) -> Self
     where
         I: IntoIterator<Item = T>,
@@ -161,6 +239,13 @@ impl RedisClusterDataSrc {
         }
     }
 
+    /// Creates a new `RedisClusterDataSrc` with a pre-configured `ClusterClientBuilder`.
+    ///
+    /// # Arguments
+    /// * `client_builder` - A `ClusterClientBuilder` for the Redis Cluster.
+    ///
+    /// # Returns
+    /// Returns a new instance of `RedisClusterDataSrc`.
     pub fn with_client_builder(client_builder: ClusterClientBuilder) -> Self {
         Self {
             pool: Some(RedisPool::Builder(
@@ -170,6 +255,14 @@ impl RedisClusterDataSrc {
         }
     }
 
+    /// Creates a new `RedisClusterDataSrc` with a custom cluster client builder and pool builder.
+    ///
+    /// # Arguments
+    /// * `client_builder` - A `ClusterClientBuilder` for the Redis Cluster.
+    /// * `pool_builder` - A `r2d2::Builder` for configuring the connection pool.
+    ///
+    /// # Returns
+    /// Returns a new instance of `RedisClusterDataSrc`.
     pub fn with_client_builder_and_pool_builder(
         client_builder: ClusterClientBuilder,
         pool_builder: Builder<ClusterClient>,
