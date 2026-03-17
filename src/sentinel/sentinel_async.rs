@@ -9,16 +9,41 @@ use sabi::tokio::{AsyncGroup, DataConn, DataSrc};
 use std::future::Future;
 use std::{mem, pin};
 
+/// The error type for asynchronous Redis Sentinel operations.
 #[derive(Debug)]
 pub enum RedisSentinelAsyncError {
+    /// Indicates that the Redis Sentinel data source has not been set up yet.
     NotSetupYet,
+    /// Indicates that the Redis Sentinel data source has already been set up.
     AlreadySetup,
+    /// Indicates a failure to build a Redis connection pool.
     FailToBuildPool,
+    /// Indicates a failure to get a connection from the pool.
     FailToGetConnectionFromPool,
 }
 
 type BoxedFuture = pin::Pin<Box<dyn Future<Output = errs::Result<()>> + Send + 'static>>;
 
+/// A data connection for Redis Sentinel, providing asynchronous operations.
+///
+/// This structure holds an asynchronous connection pool for a Redis Sentinel-managed 
+/// setup and allows for adding hooks (pre-commit, post-commit, and force-back) 
+/// that are executed during the lifecycle of an asynchronous data operation managed by `sabi`.
+///
+/// # Examples
+/// ```
+/// use sabi_redis::RedisSentinelAsyncDataConn;
+/// use redis::AsyncCommands;
+/// use sabi::tokio::DataAcc;
+///
+/// trait MyDataAcc: DataAcc {
+///     async fn set_value(&mut self, key: &str, val: &str) -> errs::Result<()> {
+///         let data_conn = self.get_data_conn_async::<RedisSentinelAsyncDataConn>("redis").await?;
+///         let mut conn = data_conn.get_connection_async().await?;
+///         conn.set(key, val).await.map_err(|e| errs::Err::with_source("fail", e))
+///     }
+/// }
+/// ```
 pub struct RedisSentinelAsyncDataConn {
     pool: Pool,
     pre_commit_vec: Vec<BoxedFuture>,
@@ -36,12 +61,25 @@ impl RedisSentinelAsyncDataConn {
         }
     }
 
+    /// Gets an asynchronous Sentinel-managed connection from the pool.
+    ///
+    /// # Returns
+    /// Returns a `Result` containing a `Connection` on success, 
+    /// or a `RedisSentinelAsyncError::FailToGetConnectionFromPool` wrapped in `errs::Err` on failure.
     pub async fn get_connection_async(&mut self) -> errs::Result<Connection> {
         self.pool.get().await.map_err(|e| {
             errs::Err::with_source(RedisSentinelAsyncError::FailToGetConnectionFromPool, e)
         })
     }
 
+    /// Gets an asynchronous Sentinel-managed connection from the pool with specific timeouts.
+    ///
+    /// # Arguments
+    /// * `timeouts` - A `Timeouts` configuration for getting a connection.
+    ///
+    /// # Returns
+    /// Returns a `Result` containing a `Connection` on success, 
+    /// or a `RedisSentinelAsyncError::FailToGetConnectionFromPool` wrapped in `errs::Err` on failure.
     pub async fn get_connection_with_timeout_async(
         &mut self,
         timeouts: Timeouts,
@@ -51,6 +89,10 @@ impl RedisSentinelAsyncDataConn {
         })
     }
 
+    /// Adds an asynchronous function to be executed before a commit occurs.
+    ///
+    /// # Arguments
+    /// * `f` - An async closure or function that takes a `Connection` and returns a `Future`.
     pub async fn add_pre_commit_async<F, Fut>(&mut self, mut f: F)
     where
         F: FnMut(Connection) -> Fut,
@@ -70,6 +112,10 @@ impl RedisSentinelAsyncDataConn {
         }
     }
 
+    /// Adds an asynchronous function to be executed after a successful commit.
+    ///
+    /// # Arguments
+    /// * `f` - An async closure or function that takes a `Connection` and returns a `Future`.
     pub async fn add_post_commit_async<F, Fut>(&mut self, mut f: F)
     where
         F: FnMut(Connection) -> Fut,
@@ -89,6 +135,10 @@ impl RedisSentinelAsyncDataConn {
         }
     }
 
+    /// Adds an asynchronous function to be executed when a rollback occurs.
+    ///
+    /// # Arguments
+    /// * `f` - An async closure or function that takes a `Connection` and returns a `Future`.
     pub async fn add_force_back_async<F, Fut>(&mut self, mut f: F)
     where
         F: FnMut(Connection) -> Fut,
@@ -158,6 +208,25 @@ impl DataConn for RedisSentinelAsyncDataConn {
     }
 }
 
+/// A data source for Redis Sentinel, used to initialize and provide `RedisSentinelAsyncDataConn` instances.
+///
+/// This struct implements the `DataSrc` trait from the `sabi` library for asynchronous operations.
+///
+/// # Examples
+/// ```
+/// use sabi_redis::RedisSentinelAsyncDataSrc;
+/// use sabi::tokio::DataHub;
+///
+/// let mut data = DataHub::new();
+/// data.uses("redis", RedisSentinelAsyncDataSrc::new(
+///     vec![
+///         "redis://127.0.0.1:26479",
+///         "redis://127.0.0.1:26480",
+///         "redis://127.0.0.1:26481",
+///     ],
+///     "mymaster",
+/// ));
+/// ```
 pub struct RedisSentinelAsyncDataSrc {
     pool: Option<RedisPool>,
 }
@@ -168,6 +237,14 @@ enum RedisPool {
 }
 
 impl RedisSentinelAsyncDataSrc {
+    /// Creates a new `RedisSentinelAsyncDataSrc` with Sentinel addresses and a master name.
+    ///
+    /// # Arguments
+    /// * `addrs` - An iterator of Sentinel addresses.
+    /// * `master_name` - The name of the Redis master.
+    ///
+    /// # Returns
+    /// Returns a new instance of `RedisSentinelAsyncDataSrc`.
     pub fn new<I, S>(addrs: I, master_name: S) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -186,6 +263,15 @@ impl RedisSentinelAsyncDataSrc {
         }
     }
 
+    /// Creates a new `RedisSentinelAsyncDataSrc` with Sentinel addresses, a master name, and a custom pool configuration.
+    ///
+    /// # Arguments
+    /// * `addrs` - An iterator of Sentinel addresses.
+    /// * `master_name` - The name of the Redis master.
+    /// * `pool_config` - A `PoolConfig` for the underlying connection pool.
+    ///
+    /// # Returns
+    /// Returns a new instance of `RedisSentinelAsyncDataSrc`.
     pub fn with_pool_config<I, S>(addrs: I, master_name: S, pool_config: PoolConfig) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -204,6 +290,13 @@ impl RedisSentinelAsyncDataSrc {
         }
     }
 
+    /// Creates a new `RedisSentinelAsyncDataSrc` with a complete `Config`.
+    ///
+    /// # Arguments
+    /// * `cfg` - A `deadpool_redis::sentinel::Config` object.
+    ///
+    /// # Returns
+    /// Returns a new instance of `RedisSentinelAsyncDataSrc`.
     pub fn with_config(cfg: Config) -> Self {
         Self {
             pool: Some(RedisPool::Config(Box::new(cfg))),
