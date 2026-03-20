@@ -27,7 +27,7 @@ pub enum RedisSyncError {
 #[allow(clippy::type_complexity)]
 /// A data connection for a standalone Redis server, providing synchronous operations.
 ///
-/// This structure holds a connection pool and allows for adding hooks (pre-commit, post-commit, 
+/// This structure holds a connection pool and allows for adding hooks (pre-commit, post-commit,
 /// and force-back) that are executed during the lifecycle of a data operation managed by `sabi`.
 ///
 /// # Examples
@@ -64,7 +64,7 @@ impl RedisDataConn {
     /// Gets a connection from the pool.
     ///
     /// # Returns
-    /// Returns a `Result` containing a `PooledConnection<Client>` on success, 
+    /// Returns a `Result` containing a `PooledConnection<Client>` on success,
     /// or a `RedisSyncError::FailToGetConnectionFromPool` wrapped in `errs::Err` on failure.
     pub fn get_connection(&mut self) -> errs::Result<PooledConnection<Client>> {
         self.pool
@@ -78,7 +78,7 @@ impl RedisDataConn {
     /// * `timeout` - A `Duration` to wait for a connection before failing.
     ///
     /// # Returns
-    /// Returns a `Result` containing a `PooledConnection<Client>` on success, 
+    /// Returns a `Result` containing a `PooledConnection<Client>` on success,
     /// or a `RedisSyncError::FailToGetConnectionFromPool` wrapped in `errs::Err` on failure.
     pub fn get_connection_with_timeout(
         &self,

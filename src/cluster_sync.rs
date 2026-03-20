@@ -29,13 +29,13 @@ pub enum RedisClusterSyncError {
 #[allow(clippy::type_complexity)]
 /// A data connection for a Redis Cluster, providing synchronous operations.
 ///
-/// This structure holds a connection pool for a Redis Cluster and allows for adding hooks 
-/// (pre-commit, post-commit, and force-back) that are executed during the lifecycle 
+/// This structure holds a connection pool for a Redis Cluster and allows for adding hooks
+/// (pre-commit, post-commit, and force-back) that are executed during the lifecycle
 /// of a data operation managed by `sabi`.
 ///
 /// # Examples
 /// ```
-/// use sabi_redis::RedisClusterDataConn;
+/// use sabi_redis::cluster::RedisClusterDataConn;
 /// use redis::Commands;
 /// use sabi::DataAcc;
 ///
@@ -67,7 +67,7 @@ impl RedisClusterDataConn {
     /// Gets a cluster connection from the pool.
     ///
     /// # Returns
-    /// Returns a `Result` containing a `PooledConnection<ClusterClient>` on success, 
+    /// Returns a `Result` containing a `PooledConnection<ClusterClient>` on success,
     /// or a `RedisClusterSyncError::FailToGetConnectionFromPool` wrapped in `errs::Err` on failure.
     pub fn get_connection(&mut self) -> errs::Result<PooledConnection<ClusterClient>> {
         self.pool.get().map_err(|e| {
@@ -81,7 +81,7 @@ impl RedisClusterDataConn {
     /// * `timeout` - A `Duration` to wait for a connection before failing.
     ///
     /// # Returns
-    /// Returns a `Result` containing a `PooledConnection<ClusterClient>` on success, 
+    /// Returns a `Result` containing a `PooledConnection<ClusterClient>` on success,
     /// or a `RedisClusterSyncError::FailToGetConnectionFromPool` wrapped in `errs::Err` on failure.
     pub fn get_connection_with_timeout(
         &self,
@@ -201,7 +201,7 @@ impl DataConn for RedisClusterDataConn {
 ///
 /// # Examples
 /// ```
-/// use sabi_redis::RedisClusterDataSrc;
+/// use sabi_redis::cluster::RedisClusterDataSrc;
 /// use sabi::DataHub;
 ///
 /// let mut data = DataHub::new();

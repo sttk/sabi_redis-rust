@@ -26,8 +26,8 @@ type BoxedFuture = pin::Pin<Box<dyn Future<Output = errs::Result<()>> + Send + '
 
 /// A data connection for a standalone Redis server, providing asynchronous operations.
 ///
-/// This structure holds an asynchronous connection pool and allows for adding hooks 
-/// (pre-commit, post-commit, and force-back) that are executed during the lifecycle 
+/// This structure holds an asynchronous connection pool and allows for adding hooks
+/// (pre-commit, post-commit, and force-back) that are executed during the lifecycle
 /// of an asynchronous data operation managed by `sabi`.
 ///
 /// # Examples
@@ -64,7 +64,7 @@ impl RedisAsyncDataConn {
     /// Gets an asynchronous connection from the pool.
     ///
     /// # Returns
-    /// Returns a `Result` containing a `Connection` on success, 
+    /// Returns a `Result` containing a `Connection` on success,
     /// or a `RedisAsyncError::FailToGetConnectionFromPool` wrapped in `errs::Err` on failure.
     pub async fn get_connection_async(&mut self) -> errs::Result<Connection> {
         self.pool
@@ -79,7 +79,7 @@ impl RedisAsyncDataConn {
     /// * `timeouts` - A `Timeouts` configuration for getting a connection.
     ///
     /// # Returns
-    /// Returns a `Result` containing a `Connection` on success, 
+    /// Returns a `Result` containing a `Connection` on success,
     /// or a `RedisAsyncError::FailToGetConnectionFromPool` wrapped in `errs::Err` on failure.
     pub async fn get_connection_with_timeout_async(
         &mut self,
