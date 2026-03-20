@@ -2,19 +2,19 @@
 // This program is free software under MIT License.
 // See the file LICENSE in this distribution for more details.
 
-use deadpool_redis::cluster::{Config, Connection, Pool, PoolConfig, Runtime};
+use deadpool_redis::sentinel::{Config, Connection, Pool, PoolConfig, Runtime, SentinelServerType};
 use deadpool_redis::Timeouts;
 use sabi::tokio::{AsyncGroup, DataConn, DataSrc};
 
 use std::future::Future;
 use std::{mem, pin};
 
-/// The error type for asynchronous Redis Cluster operations.
+/// The error type for asynchronous Redis Sentinel operations.
 #[derive(Debug)]
-pub enum RedisClusterAsyncError {
-    /// Indicates that the Redis Cluster data source has not been set up yet.
+pub enum RedisSentinelAsyncError {
+    /// Indicates that the Redis Sentinel data source has not been set up yet.
     NotSetupYet,
-    /// Indicates that the Redis Cluster data source has already been set up.
+    /// Indicates that the Redis Sentinel data source has already been set up.
     AlreadySetup,
     /// Indicates a failure to build a Redis connection pool.
     FailToBuildPool,
@@ -24,34 +24,34 @@ pub enum RedisClusterAsyncError {
 
 type BoxedFuture = pin::Pin<Box<dyn Future<Output = errs::Result<()>> + Send + 'static>>;
 
-/// A data connection for a Redis Cluster, providing asynchronous operations.
+/// A data connection for Redis Sentinel, providing asynchronous operations.
 ///
-/// This structure holds an asynchronous connection pool for a Redis Cluster and allows 
-/// for adding hooks (pre-commit, post-commit, and force-back) that are executed during 
-/// the lifecycle of an asynchronous data operation managed by `sabi`.
+/// This structure holds an asynchronous connection pool for a Redis Sentinel-managed
+/// setup and allows for adding hooks (pre-commit, post-commit, and force-back)
+/// that are executed during the lifecycle of an asynchronous data operation managed by `sabi`.
 ///
 /// # Examples
 /// ```
-/// use sabi_redis::RedisClusterAsyncDataConn;
+/// use sabi_redis::sentinel::RedisSentinelAsyncDataConn;
 /// use redis::AsyncCommands;
 /// use sabi::tokio::DataAcc;
 ///
 /// trait MyDataAcc: DataAcc {
 ///     async fn set_value(&mut self, key: &str, val: &str) -> errs::Result<()> {
-///         let data_conn = self.get_data_conn_async::<RedisClusterAsyncDataConn>("redis").await?;
+///         let data_conn = self.get_data_conn_async::<RedisSentinelAsyncDataConn>("redis").await?;
 ///         let mut conn = data_conn.get_connection_async().await?;
 ///         conn.set(key, val).await.map_err(|e| errs::Err::with_source("fail", e))
 ///     }
 /// }
 /// ```
-pub struct RedisClusterAsyncDataConn {
+pub struct RedisSentinelAsyncDataConn {
     pool: Pool,
     pre_commit_vec: Vec<BoxedFuture>,
     post_commit_vec: Vec<BoxedFuture>,
     force_back_vec: Vec<BoxedFuture>,
 }
 
-impl RedisClusterAsyncDataConn {
+impl RedisSentinelAsyncDataConn {
     fn new(pool: Pool) -> Self {
         Self {
             pool,
@@ -61,31 +61,31 @@ impl RedisClusterAsyncDataConn {
         }
     }
 
-    /// Gets an asynchronous cluster connection from the pool.
+    /// Gets an asynchronous Sentinel-managed connection from the pool.
     ///
     /// # Returns
-    /// Returns a `Result` containing a `Connection` on success, 
-    /// or a `RedisClusterAsyncError::FailToGetConnectionFromPool` wrapped in `errs::Err` on failure.
+    /// Returns a `Result` containing a `Connection` on success,
+    /// or a `RedisSentinelAsyncError::FailToGetConnectionFromPool` wrapped in `errs::Err` on failure.
     pub async fn get_connection_async(&mut self) -> errs::Result<Connection> {
         self.pool.get().await.map_err(|e| {
-            errs::Err::with_source(RedisClusterAsyncError::FailToGetConnectionFromPool, e)
+            errs::Err::with_source(RedisSentinelAsyncError::FailToGetConnectionFromPool, e)
         })
     }
 
-    /// Gets an asynchronous cluster connection from the pool with specific timeouts.
+    /// Gets an asynchronous Sentinel-managed connection from the pool with specific timeouts.
     ///
     /// # Arguments
     /// * `timeouts` - A `Timeouts` configuration for getting a connection.
     ///
     /// # Returns
-    /// Returns a `Result` containing a `Connection` on success, 
-    /// or a `RedisClusterAsyncError::FailToGetConnectionFromPool` wrapped in `errs::Err` on failure.
+    /// Returns a `Result` containing a `Connection` on success,
+    /// or a `RedisSentinelAsyncError::FailToGetConnectionFromPool` wrapped in `errs::Err` on failure.
     pub async fn get_connection_with_timeout_async(
         &mut self,
         timeouts: Timeouts,
     ) -> errs::Result<Connection> {
         self.pool.timeout_get(&timeouts).await.map_err(|e| {
-            errs::Err::with_source(RedisClusterAsyncError::FailToGetConnectionFromPool, e)
+            errs::Err::with_source(RedisSentinelAsyncError::FailToGetConnectionFromPool, e)
         })
     }
 
@@ -105,7 +105,7 @@ impl RedisClusterAsyncDataConn {
             }
             Err(e) => self.pre_commit_vec.push(Box::pin(async move {
                 Err(errs::Err::with_source(
-                    RedisClusterAsyncError::FailToGetConnectionFromPool,
+                    RedisSentinelAsyncError::FailToGetConnectionFromPool,
                     e,
                 ))
             })),
@@ -128,7 +128,7 @@ impl RedisClusterAsyncDataConn {
             }
             Err(e) => self.post_commit_vec.push(Box::pin(async move {
                 Err(errs::Err::with_source(
-                    RedisClusterAsyncError::FailToGetConnectionFromPool,
+                    RedisSentinelAsyncError::FailToGetConnectionFromPool,
                     e,
                 ))
             })),
@@ -151,7 +151,7 @@ impl RedisClusterAsyncDataConn {
             }
             Err(e) => self.force_back_vec.push(Box::pin(async move {
                 Err(errs::Err::with_source(
-                    RedisClusterAsyncError::FailToGetConnectionFromPool,
+                    RedisSentinelAsyncError::FailToGetConnectionFromPool,
                     e,
                 ))
             })),
@@ -159,7 +159,7 @@ impl RedisClusterAsyncDataConn {
     }
 }
 
-impl DataConn for RedisClusterAsyncDataConn {
+impl DataConn for RedisSentinelAsyncDataConn {
     async fn pre_commit_async(&mut self, ag: &mut AsyncGroup) -> errs::Result<()> {
         let vec = mem::take(&mut self.pre_commit_vec);
         ag.add(async move {
@@ -208,23 +208,26 @@ impl DataConn for RedisClusterAsyncDataConn {
     }
 }
 
-/// A data source for Redis Cluster, used to initialize and provide `RedisClusterAsyncDataConn` instances.
+/// A data source for Redis Sentinel, used to initialize and provide `RedisSentinelAsyncDataConn` instances.
 ///
 /// This struct implements the `DataSrc` trait from the `sabi` library for asynchronous operations.
 ///
 /// # Examples
 /// ```
-/// use sabi_redis::RedisClusterAsyncDataSrc;
+/// use sabi_redis::sentinel::RedisSentinelAsyncDataSrc;
 /// use sabi::tokio::DataHub;
 ///
 /// let mut data = DataHub::new();
-/// data.uses("redis", RedisClusterAsyncDataSrc::new(vec![
-///     "redis://127.0.0.1:7000/",
-///     "redis://127.0.0.1:7001/",
-///     "redis://127.0.0.1:7002/",
-/// ]));
+/// data.uses("redis", RedisSentinelAsyncDataSrc::new(
+///     vec![
+///         "redis://127.0.0.1:26479",
+///         "redis://127.0.0.1:26480",
+///         "redis://127.0.0.1:26481",
+///     ],
+///     "mymaster",
+/// ));
 /// ```
-pub struct RedisClusterAsyncDataSrc {
+pub struct RedisSentinelAsyncDataSrc {
     pool: Option<RedisPool>,
 }
 
@@ -233,39 +236,16 @@ enum RedisPool {
     Config(Box<Config>),
 }
 
-impl RedisClusterAsyncDataSrc {
-    /// Creates a new `RedisClusterAsyncDataSrc` with the given cluster node addresses.
+impl RedisSentinelAsyncDataSrc {
+    /// Creates a new `RedisSentinelAsyncDataSrc` with Sentinel addresses and a master name.
     ///
     /// # Arguments
-    /// * `addrs` - An iterator of items that can be converted into Redis connection info.
+    /// * `addrs` - An iterator of Sentinel addresses.
+    /// * `master_name` - The name of the Redis master.
     ///
     /// # Returns
-    /// Returns a new instance of `RedisClusterAsyncDataSrc`.
-    pub fn new<I, S>(addrs: I) -> Self
-    where
-        I: IntoIterator<Item = S>,
-        S: AsRef<str>,
-    {
-        let urls: Vec<String> = addrs.into_iter().map(|s| s.as_ref().to_string()).collect();
-        Self {
-            pool: Some(RedisPool::Config(Box::new(Config {
-                urls: Some(urls),
-                connections: None,
-                pool: None,
-                read_from_replicas: false,
-            }))),
-        }
-    }
-
-    /// Creates a new `RedisClusterAsyncDataSrc` with cluster node addresses and a custom pool configuration.
-    ///
-    /// # Arguments
-    /// * `addrs` - An iterator of cluster node addresses.
-    /// * `pool_config` - A `PoolConfig` for the underlying connection pool.
-    ///
-    /// # Returns
-    /// Returns a new instance of `RedisClusterAsyncDataSrc`.
-    pub fn with_pool_config<I, S>(addrs: I, pool_config: PoolConfig) -> Self
+    /// Returns a new instance of `RedisSentinelAsyncDataSrc`.
+    pub fn new<I, S>(addrs: I, master_name: S) -> Self
     where
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
@@ -274,20 +254,49 @@ impl RedisClusterAsyncDataSrc {
         Self {
             pool: Some(RedisPool::Config(Box::new(Config {
                 urls: Some(urls),
+                server_type: SentinelServerType::Master,
+                master_name: master_name.as_ref().to_string(),
                 connections: None,
-                pool: Some(pool_config),
-                read_from_replicas: false,
+                node_connection_info: None,
+                pool: None,
             }))),
         }
     }
 
-    /// Creates a new `RedisClusterAsyncDataSrc` with a complete `Config`.
+    /// Creates a new `RedisSentinelAsyncDataSrc` with Sentinel addresses, a master name, and a custom pool configuration.
     ///
     /// # Arguments
-    /// * `cfg` - A `deadpool_redis::cluster::Config` object.
+    /// * `addrs` - An iterator of Sentinel addresses.
+    /// * `master_name` - The name of the Redis master.
+    /// * `pool_config` - A `PoolConfig` for the underlying connection pool.
     ///
     /// # Returns
-    /// Returns a new instance of `RedisClusterAsyncDataSrc`.
+    /// Returns a new instance of `RedisSentinelAsyncDataSrc`.
+    pub fn with_pool_config<I, S>(addrs: I, master_name: S, pool_config: PoolConfig) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let urls = addrs.into_iter().map(|s| s.as_ref().to_string()).collect();
+        Self {
+            pool: Some(RedisPool::Config(Box::new(Config {
+                urls: Some(urls),
+                server_type: SentinelServerType::Master,
+                master_name: master_name.as_ref().to_string(),
+                connections: None,
+                node_connection_info: None,
+                pool: Some(pool_config),
+            }))),
+        }
+    }
+
+    /// Creates a new `RedisSentinelAsyncDataSrc` with a complete `Config`.
+    ///
+    /// # Arguments
+    /// * `cfg` - A `deadpool_redis::sentinel::Config` object.
+    ///
+    /// # Returns
+    /// Returns a new instance of `RedisSentinelAsyncDataSrc`.
     pub fn with_config(cfg: Config) -> Self {
         Self {
             pool: Some(RedisPool::Config(Box::new(cfg))),
@@ -295,19 +304,19 @@ impl RedisClusterAsyncDataSrc {
     }
 }
 
-impl DataSrc<RedisClusterAsyncDataConn> for RedisClusterAsyncDataSrc {
+impl DataSrc<RedisSentinelAsyncDataConn> for RedisSentinelAsyncDataSrc {
     async fn setup_async(&mut self, _ag: &mut AsyncGroup) -> errs::Result<()> {
         let pool_opt = mem::take(&mut self.pool);
-        let pool = pool_opt.ok_or_else(|| errs::Err::new(RedisClusterAsyncError::AlreadySetup))?;
+        let pool = pool_opt.ok_or_else(|| errs::Err::new(RedisSentinelAsyncError::AlreadySetup))?;
         match pool {
             RedisPool::Config(cfg) => {
                 let pool = cfg.create_pool(Some(Runtime::Tokio1)).map_err(|e| {
-                    errs::Err::with_source(RedisClusterAsyncError::FailToBuildPool, e)
+                    errs::Err::with_source(RedisSentinelAsyncError::FailToBuildPool, e)
                 })?;
                 self.pool = Some(RedisPool::Object(pool));
                 Ok(())
             }
-            _ => Err(errs::Err::new(RedisClusterAsyncError::AlreadySetup)),
+            _ => Err(errs::Err::new(RedisSentinelAsyncError::AlreadySetup)),
         }
     }
 
@@ -317,14 +326,14 @@ impl DataSrc<RedisClusterAsyncDataConn> for RedisClusterAsyncDataSrc {
         }
     }
 
-    async fn create_data_conn_async(&mut self) -> errs::Result<Box<RedisClusterAsyncDataConn>> {
+    async fn create_data_conn_async(&mut self) -> errs::Result<Box<RedisSentinelAsyncDataConn>> {
         let pool = self
             .pool
             .as_mut()
-            .ok_or_else(|| errs::Err::new(RedisClusterAsyncError::NotSetupYet))?;
+            .ok_or_else(|| errs::Err::new(RedisSentinelAsyncError::NotSetupYet))?;
         match pool {
-            RedisPool::Object(pool) => Ok(Box::new(RedisClusterAsyncDataConn::new(pool.clone()))),
-            _ => Err(errs::Err::new(RedisClusterAsyncError::NotSetupYet)),
+            RedisPool::Object(pool) => Ok(Box::new(RedisSentinelAsyncDataConn::new(pool.clone()))),
+            _ => Err(errs::Err::new(RedisSentinelAsyncError::NotSetupYet)),
         }
     }
 }
@@ -332,78 +341,78 @@ impl DataSrc<RedisClusterAsyncDataConn> for RedisClusterAsyncDataSrc {
 #[cfg(test)]
 mod unit_tests {
     use super::*;
-    use deadpool_redis::{ConnectionAddr, ConnectionInfo, Timeouts};
+    use deadpool_redis::Timeouts;
     use override_macro::{overridable, override_with};
     use redis::AsyncCommands;
     use sabi::tokio::{logic, DataAcc, DataHub};
     use std::time;
 
     #[derive(Debug)]
-    enum SampleClusterAsyncError {
+    enum SampleSentinelAsyncError {
         FailToGetValue,
         FailToSetValue,
         FailToDelValue,
     }
 
     #[overridable]
-    trait RedisClusterAsyncSampleDataAcc: DataAcc {
+    trait RedisSentinelAsyncSampleDataAcc: DataAcc {
         async fn get_sample_key_async(&mut self) -> errs::Result<Option<String>> {
             let data_conn = self
-                .get_data_conn_async::<RedisClusterAsyncDataConn>("redis")
+                .get_data_conn_async::<RedisSentinelAsyncDataConn>("redis")
                 .await?;
             let mut conn = data_conn.get_connection_async().await?;
-            conn.get("sample_cluster_async")
+            conn.get("sample_sentinel_async")
                 .await
-                .map_err(|e| errs::Err::with_source(SampleClusterAsyncError::FailToGetValue, e))
+                .map_err(|e| errs::Err::with_source(SampleSentinelAsyncError::FailToGetValue, e))
         }
         async fn set_sample_key_async(&mut self, val: &str) -> errs::Result<()> {
             let data_conn = self
-                .get_data_conn_async::<RedisClusterAsyncDataConn>("redis")
+                .get_data_conn_async::<RedisSentinelAsyncDataConn>("redis")
                 .await?;
             let mut conn = data_conn
                 .get_connection_with_timeout_async(Timeouts::wait_millis(1000))
                 .await?;
-            conn.set("sample_cluster_async", val)
+            conn.set("sample_sentinel_async", val)
                 .await
-                .map_err(|e| errs::Err::with_source(SampleClusterAsyncError::FailToSetValue, e))
+                .map_err(|e| errs::Err::with_source(SampleSentinelAsyncError::FailToSetValue, e))
         }
         async fn del_sample_key_async(&mut self) -> errs::Result<()> {
             let data_conn = self
-                .get_data_conn_async::<RedisClusterAsyncDataConn>("redis")
+                .get_data_conn_async::<RedisSentinelAsyncDataConn>("redis")
                 .await?;
             let mut conn = data_conn.get_connection_async().await?;
-            conn.del("sample_cluster_async")
+            conn.del("sample_sentinel_async")
                 .await
-                .map_err(|e| errs::Err::with_source(SampleClusterAsyncError::FailToDelValue, e))
+                .map_err(|e| errs::Err::with_source(SampleSentinelAsyncError::FailToDelValue, e))
         }
 
         async fn set_sample_key_with_force_back_async(&mut self, val: &str) -> errs::Result<()> {
             let data_conn = self
-                .get_data_conn_async::<RedisClusterAsyncDataConn>("redis")
+                .get_data_conn_async::<RedisSentinelAsyncDataConn>("redis")
                 .await?;
             let mut conn = data_conn
                 .get_connection_with_timeout_async(Timeouts::wait_millis(1000))
                 .await?;
 
-            conn.set::<&str, &str, ()>("sample_force_back_cluster_async", val)
+            conn.set::<&str, &str, ()>("sample_force_back_sentinel_async", val)
                 .await
-                .map_err(|e| errs::Err::with_source(SampleClusterAsyncError::FailToSetValue, e))?;
+                .map_err(|e| errs::Err::with_source(SampleSentinelAsyncError::FailToSetValue, e))?;
 
             data_conn
                 .add_force_back_async(async |mut conn| {
-                    conn.del("sample_force_back_cluster_async")
+                    conn.del("sample_force_back_sentinel_async")
                         .await
                         .map_err(|e| errs::Err::with_source("fail to force back", e))
                 })
                 .await;
 
-            conn.set::<&str, &str, ()>("sample_force_back_cluster_async_2", val)
+            conn.set::<&str, &str, ()>("sample_force_back_sentinel_async_2", val)
                 .await
-                .map_err(|e| errs::Err::with_source(SampleClusterAsyncError::FailToSetValue, e))?;
+                .map_err(|e| errs::Err::with_source(SampleSentinelAsyncError::FailToSetValue, e))?;
 
             data_conn
                 .add_force_back_async(async |mut conn| {
-                    conn.del("sample_force_back_cluster_async_2")
+                    conn.del("sample_force_back_sentinel_async_2")
                         .await
                         .map_err(|e| errs::Err::with_source("fail to force back", e))
                 })
@@ -414,7 +423,7 @@ mod unit_tests {
 
         async fn set_sample_key_with_pre_commit_async(&mut self, val: &str) -> errs::Result<()> {
             let data_conn = self
-                .get_data_conn_async::<RedisClusterAsyncDataConn>("redis")
+                .get_data_conn_async::<RedisSentinelAsyncDataConn>("redis")
                 .await?;
 
             let val_owned = val.to_string();
@@ -423,10 +432,10 @@ mod unit_tests {
                 .add_pre_commit_async(move |mut conn| {
                     let value = val_owned.clone();
                     async move {
-                        conn.set::<&str, &str, ()>("sample_pre_commit_cluster_async", &value)
+                        conn.set::<&str, &str, ()>("sample_pre_commit_sentinel_async", &value)
                             .await
                             .map_err(|e| {
-                                errs::Err::with_source(SampleClusterAsyncError::FailToSetValue, e)
+                                errs::Err::with_source(SampleSentinelAsyncError::FailToSetValue, e)
                             })?;
                         Ok(())
                     }
@@ -438,7 +447,7 @@ mod unit_tests {
 
         async fn set_sample_key_with_post_commit_async(&mut self, val: &str) -> errs::Result<()> {
             let data_conn = self
-                .get_data_conn_async::<RedisClusterAsyncDataConn>("redis")
+                .get_data_conn_async::<RedisSentinelAsyncDataConn>("redis")
                 .await?;
 
             let val_owned = val.to_string();
@@ -447,10 +456,10 @@ mod unit_tests {
                 .add_post_commit_async(move |mut conn| {
                     let value = val_owned.clone();
                     async move {
-                        conn.set::<&str, &str, ()>("sample_post_commit_cluster_async", &value)
+                        conn.set::<&str, &str, ()>("sample_post_commit_sentinel_async", &value)
                             .await
                             .map_err(|e| {
-                                errs::Err::with_source(SampleClusterAsyncError::FailToSetValue, e)
+                                errs::Err::with_source(SampleSentinelAsyncError::FailToSetValue, e)
                             })?;
                         Ok(())
                     }
@@ -460,10 +469,10 @@ mod unit_tests {
             Ok(())
         }
     }
-    impl RedisClusterAsyncSampleDataAcc for DataHub {}
+    impl RedisSentinelAsyncSampleDataAcc for DataHub {}
 
     #[overridable]
-    trait SampleDataClusterAsync {
+    trait SampleDataSentinelAsync {
         async fn get_sample_key_async(&mut self) -> errs::Result<Option<String>>;
         async fn set_sample_key_async(&mut self, value: &str) -> errs::Result<()>;
         async fn del_sample_key_async(&mut self) -> errs::Result<()>;
@@ -471,10 +480,10 @@ mod unit_tests {
         async fn set_sample_key_with_pre_commit_async(&mut self, val: &str) -> errs::Result<()>;
         async fn set_sample_key_with_post_commit_async(&mut self, val: &str) -> errs::Result<()>;
     }
-    #[override_with(RedisClusterAsyncSampleDataAcc)]
-    impl SampleDataClusterAsync for DataHub {}
+    #[override_with(RedisSentinelAsyncSampleDataAcc)]
+    impl SampleDataSentinelAsync for DataHub {}
 
-    async fn sample_logic_async(data: &mut impl SampleDataClusterAsync) -> errs::Result<()> {
+    async fn sample_logic_async(data: &mut impl SampleDataSentinelAsync) -> errs::Result<()> {
         match data.get_sample_key_async().await? {
             Some(_) => panic!("Data exists"),
             None => {}
@@ -496,18 +505,21 @@ mod unit_tests {
         let mut data = DataHub::new();
         data.uses(
             "redis",
-            RedisClusterAsyncDataSrc::new(vec![
-                "redis://127.0.0.1:7000/",
-                "redis://127.0.0.1:7001/",
-                "redis://127.0.0.1:7002/",
-            ]),
+            RedisSentinelAsyncDataSrc::new(
+                vec![
+                    "redis://127.0.0.1:26479",
+                    "redis://127.0.0.1:26480",
+                    "redis://127.0.0.1:26481",
+                ],
+                "mymaster",
+            ),
         );
         data.run_async(logic!(sample_logic_async)).await?;
         Ok(())
     }
 
     #[tokio::test]
-    async fn test_with_ppol_config() -> errs::Result<()> {
+    async fn test_with_pool_config() -> errs::Result<()> {
         let pool_config = PoolConfig {
             max_size: 10,
             timeouts: Timeouts {
@@ -521,12 +533,13 @@ mod unit_tests {
         let mut data = DataHub::new();
         data.uses(
             "redis",
-            RedisClusterAsyncDataSrc::with_pool_config(
+            RedisSentinelAsyncDataSrc::with_pool_config(
                 vec![
-                    "redis://127.0.0.1:7000",
-                    "redis://127.0.0.1:7001",
-                    "redis://127.0.0.1:7002",
+                    "redis://127.0.0.1:26479",
+                    "redis://127.0.0.1:26480",
+                    "redis://127.0.0.1:26481",
                 ],
+                "mymaster",
                 pool_config,
             ),
         );
@@ -535,7 +548,7 @@ mod unit_tests {
     }
 
     #[tokio::test]
-    async fn ok_with_config() -> errs::Result<()> {
+    async fn test_with_config() -> errs::Result<()> {
         let pool_config = PoolConfig {
             max_size: 10,
             timeouts: Timeouts {
@@ -546,55 +559,50 @@ mod unit_tests {
             ..Default::default()
         };
 
-        let mut redis_connection_info_7000 = deadpool_redis::RedisConnectionInfo::default();
-        redis_connection_info_7000.db = 1;
-        let mut redis_connection_info_7001 = deadpool_redis::RedisConnectionInfo::default();
-        redis_connection_info_7001.db = 1;
-        let mut redis_connection_info_7002 = deadpool_redis::RedisConnectionInfo::default();
-        redis_connection_info_7002.db = 1;
+        let mut redis_connection_info = deadpool_redis::RedisConnectionInfo::default();
+        redis_connection_info.db = 1;
 
-        let connections = vec![
-            ConnectionInfo {
-                addr: ConnectionAddr::Tcp("127.0.0.1".to_string(), 7000),
-                redis: redis_connection_info_7000,
-            },
-            ConnectionInfo {
-                addr: ConnectionAddr::Tcp("127.0.0.1".to_string(), 7001),
-                redis: redis_connection_info_7001,
-            },
-            ConnectionInfo {
-                addr: ConnectionAddr::Tcp("127.0.0.1".to_string(), 7002),
-                redis: redis_connection_info_7002,
-            },
-        ];
+        let mut sentinel_node_connection_info =
+            deadpool_redis::sentinel::SentinelNodeConnectionInfo::default();
+        sentinel_node_connection_info.redis_connection_info = Some(redis_connection_info);
 
         let cfg = Config {
-            urls: None,
-            connections: Some(connections),
+            urls: vec![
+                "redis://127.0.0.1:26479".to_string(),
+                "redis://127.0.0.1:26480".to_string(),
+                "redis://127.0.0.1:26481".to_string(),
+            ]
+            .into(),
+            server_type: SentinelServerType::Master,
+            master_name: "mymaster".to_string(),
+            connections: None,
+            node_connection_info: Some(sentinel_node_connection_info),
             pool: Some(pool_config),
-            read_from_replicas: true,
         };
 
         let mut data = DataHub::new();
-        data.uses("redis", RedisClusterAsyncDataSrc::with_config(cfg));
+        data.uses("redis", RedisSentinelAsyncDataSrc::with_config(cfg));
         data.run_async(logic!(sample_logic_async)).await?;
+
         Ok(())
     }
 
     #[tokio::test]
     async fn fail_to_setup() {
         let mut data = DataHub::new();
-        data.uses("redis", RedisClusterAsyncDataSrc::new(vec!["xxxxxx"]));
-
+        data.uses(
+            "redis",
+            RedisSentinelAsyncDataSrc::new(vec!["xxxxxx"], "mymaster"),
+        );
         if let Err(err) = data.run_async(logic!(sample_logic_async)).await {
             if let Ok(r) = err.reason::<sabi::tokio::DataHubError>() {
                 match r {
                     sabi::tokio::DataHubError::FailToSetupLocalDataSrcs { errors } => {
                         assert_eq!(errors.len(), 1);
                         assert_eq!(errors[0].0.as_ref(), "redis");
-                        if let Ok(r) = errors[0].1.reason::<RedisClusterAsyncError>() {
+                        if let Ok(r) = errors[0].1.reason::<RedisSentinelAsyncError>() {
                             match r {
-                                RedisClusterAsyncError::FailToBuildPool => {}
+                                RedisSentinelAsyncError::FailToBuildPool => {}
                                 _ => panic!(),
                             }
                         }
@@ -628,28 +636,28 @@ mod unit_tests {
     }
 
     async fn sample_logic_with_force_back_async_ok(
-        data: &mut impl SampleDataClusterAsync,
+        data: &mut impl SampleDataSentinelAsync,
     ) -> errs::Result<()> {
         data.set_sample_key_with_force_back_async("Good Afternoon")
             .await?;
         Ok(())
     }
     async fn sample_logic_with_force_back_async_err(
-        data: &mut impl SampleDataClusterAsync,
+        data: &mut impl SampleDataSentinelAsync,
     ) -> errs::Result<()> {
         data.set_sample_key_with_force_back_async("Good Afternoon")
             .await?;
         Err(errs::Err::new("XXX"))
     }
     async fn sample_logic_with_pre_commit_async(
-        data: &mut impl SampleDataClusterAsync,
+        data: &mut impl SampleDataSentinelAsync,
     ) -> errs::Result<()> {
         data.set_sample_key_with_pre_commit_async("Good Evening")
             .await?;
         Ok(())
     }
     async fn sample_logic_with_post_commit_async(
-        data: &mut impl SampleDataClusterAsync,
+        data: &mut impl SampleDataSentinelAsync,
     ) -> errs::Result<()> {
         data.set_sample_key_with_post_commit_async("Good Night")
             .await?;
@@ -661,11 +669,14 @@ mod unit_tests {
         let mut data = DataHub::new();
         data.uses(
             "redis",
-            RedisClusterAsyncDataSrc::new(vec![
-                "redis://127.0.0.1:7000",
-                "redis://127.0.0.1:7001",
-                "redis://127.0.0.1:7002",
-            ]),
+            RedisSentinelAsyncDataSrc::new(
+                vec![
+                    "redis://127.0.0.1:26479",
+                    "redis://127.0.0.1:26480",
+                    "redis://127.0.0.1:26481",
+                ],
+                "mymaster",
+            ),
         );
 
         let r = data
@@ -674,23 +685,24 @@ mod unit_tests {
         assert!(r.is_ok());
 
         {
-            let client = redis::cluster::ClusterClient::new(vec![
-                "redis://127.0.0.1:7000",
-                "redis://127.0.0.1:7001",
-                "redis://127.0.0.1:7002",
+            let mut sentinel = redis::sentinel::Sentinel::build(vec![
+                "redis://127.0.0.1:26479",
+                "redis://127.0.0.1:26480",
+                "redis://127.0.0.1:26481",
             ])
             .unwrap();
 
-            let mut conn = client.get_async_connection().await.unwrap();
+            let client = sentinel.async_master_for("mymaster", None).await.unwrap();
+            let mut conn = client.get_multiplexed_async_connection().await.unwrap();
 
             let r: redis::RedisResult<Option<String>> =
-                conn.get("sample_force_back_cluster_async").await;
-            let _: redis::RedisResult<()> = conn.del("sample_force_back_cluster_async").await;
+                conn.get("sample_force_back_sentinel_async").await;
+            let _: redis::RedisResult<()> = conn.del("sample_force_back_sentinel_async").await;
             assert_eq!(r.unwrap().unwrap(), "Good Afternoon");
 
             let r: redis::RedisResult<Option<String>> =
-                conn.get("sample_force_back_cluster_async_2").await;
-            let _: redis::RedisResult<()> = conn.del("sample_force_back_cluster_async_2").await;
+                conn.get("sample_force_back_sentinel_async_2").await;
+            let _: redis::RedisResult<()> = conn.del("sample_force_back_sentinel_async_2").await;
             assert_eq!(r.unwrap().unwrap(), "Good Afternoon");
         }
 
@@ -704,23 +716,24 @@ mod unit_tests {
         }
 
         {
-            let client = redis::cluster::ClusterClient::new(vec![
-                "redis://127.0.0.1:7000",
-                "redis://127.0.0.1:7001",
-                "redis://127.0.0.1:7002",
+            let mut sentinel = redis::sentinel::Sentinel::build(vec![
+                "redis://127.0.0.1:26479",
+                "redis://127.0.0.1:26480",
+                "redis://127.0.0.1:26481",
             ])
             .unwrap();
 
-            let mut conn = client.get_async_connection().await.unwrap();
+            let client = sentinel.async_master_for("mymaster", None).await.unwrap();
+            let mut conn = client.get_multiplexed_async_connection().await.unwrap();
 
             let r: redis::RedisResult<Option<String>> =
-                conn.get("sample_force_back_cluster_async").await;
-            let _: redis::RedisResult<()> = conn.del("sample_force_back_cluster_async").await;
+                conn.get("sample_force_back_sentinel_async").await;
+            let _: redis::RedisResult<()> = conn.del("sample_force_back_sentinel_async").await;
             assert!(r.unwrap().is_none());
 
             let r: redis::RedisResult<Option<String>> =
-                conn.get("sample_force_back_cluster_async_2").await;
-            let _: redis::RedisResult<()> = conn.del("sample_force_back_cluster_async_2").await;
+                conn.get("sample_force_back_sentinel_async_2").await;
+            let _: redis::RedisResult<()> = conn.del("sample_force_back_sentinel_async_2").await;
             assert!(r.unwrap().is_none());
         }
 
@@ -732,27 +745,32 @@ mod unit_tests {
         let mut data = DataHub::new();
         data.uses(
             "redis",
-            RedisClusterAsyncDataSrc::new(vec![
-                "redis://127.0.0.1:7000",
-                "redis://127.0.0.1:7001",
-                "redis://127.0.0.1:7002",
-            ]),
+            RedisSentinelAsyncDataSrc::new(
+                vec![
+                    "redis://127.0.0.1:26479",
+                    "redis://127.0.0.1:26480",
+                    "redis://127.0.0.1:26481",
+                ],
+                "mymaster",
+            ),
         );
         data.txn_async(logic!(sample_logic_with_pre_commit_async))
             .await?;
 
         {
-            let client = redis::cluster::ClusterClient::new(vec![
-                "redis://127.0.0.1:7000",
-                "redis://127.0.0.1:7001",
-                "redis://127.0.0.1:7002",
+            let mut sentinel = redis::sentinel::Sentinel::build(vec![
+                "redis://127.0.0.1:26479",
+                "redis://127.0.0.1:26480",
+                "redis://127.0.0.1:26481",
             ])
             .unwrap();
-            let mut conn = client.get_async_connection().await.unwrap();
+
+            let client = sentinel.async_master_for("mymaster", None).await.unwrap();
+            let mut conn = client.get_multiplexed_async_connection().await.unwrap();
 
             let s: redis::RedisResult<Option<String>> =
-                conn.get("sample_pre_commit_cluster_async").await;
-            let _: redis::RedisResult<()> = conn.del("sample_pre_commit_cluster_async").await;
+                conn.get("sample_pre_commit_sentinel_async").await;
+            let _: redis::RedisResult<()> = conn.del("sample_pre_commit_sentinel_async").await;
             assert_eq!(s.unwrap().unwrap(), "Good Evening");
         }
 
@@ -764,28 +782,32 @@ mod unit_tests {
         let mut data = DataHub::new();
         data.uses(
             "redis",
-            RedisClusterAsyncDataSrc::new(vec![
-                "redis://127.0.0.1:7000",
-                "redis://127.0.0.1:7001",
-                "redis://127.0.0.1:7002",
-            ]),
+            RedisSentinelAsyncDataSrc::new(
+                vec![
+                    "redis://127.0.0.1:26479",
+                    "redis://127.0.0.1:26480",
+                    "redis://127.0.0.1:26481",
+                ],
+                "mymaster",
+            ),
         );
         data.txn_async(logic!(sample_logic_with_post_commit_async))
             .await?;
 
         {
-            let client = redis::cluster::ClusterClient::new(vec![
-                "redis://127.0.0.1:7000",
-                "redis://127.0.0.1:7001",
-                "redis://127.0.0.1:7002",
+            let mut sentinel = redis::sentinel::Sentinel::build(vec![
+                "redis://127.0.0.1:26479",
+                "redis://127.0.0.1:26480",
+                "redis://127.0.0.1:26481",
             ])
             .unwrap();
 
-            let mut conn = client.get_async_connection().await.unwrap();
+            let client = sentinel.async_master_for("mymaster", None).await.unwrap();
+            let mut conn = client.get_multiplexed_async_connection().await.unwrap();
 
             let s: redis::RedisResult<Option<String>> =
-                conn.get("sample_post_commit_cluster_async").await;
-            let _: redis::RedisResult<()> = conn.del("sample_post_commit_cluster_async").await;
+                conn.get("sample_post_commit_sentinel_async").await;
+            let _: redis::RedisResult<()> = conn.del("sample_post_commit_sentinel_async").await;
             assert_eq!(s.unwrap().unwrap(), "Good Night");
         }
         Ok(())

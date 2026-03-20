@@ -35,13 +35,13 @@ pub enum RedisSentinelSyncError {
 #[allow(clippy::type_complexity)]
 /// A data connection for Redis Sentinel, providing synchronous operations.
 ///
-/// This structure holds a connection pool for a Redis Sentinel-managed setup 
-/// and allows for adding hooks (pre-commit, post-commit, and force-back) 
+/// This structure holds a connection pool for a Redis Sentinel-managed setup
+/// and allows for adding hooks (pre-commit, post-commit, and force-back)
 /// that are executed during the lifecycle of a data operation managed by `sabi`.
 ///
 /// # Examples
 /// ```
-/// use sabi_redis::RedisSentinelDataConn;
+/// use sabi_redis::sentinel::RedisSentinelDataConn;
 /// use redis::Commands;
 /// use sabi::DataAcc;
 ///
@@ -73,7 +73,7 @@ impl RedisSentinelDataConn {
     /// Gets a Sentinel-managed connection from the pool.
     ///
     /// # Returns
-    /// Returns a `Result` containing a `PooledConnection<LockedSentinelClient>` on success, 
+    /// Returns a `Result` containing a `PooledConnection<LockedSentinelClient>` on success,
     /// or a `RedisSentinelSyncError::FailToGetConnectionFromPool` wrapped in `errs::Err` on failure.
     pub fn get_connection(&mut self) -> errs::Result<PooledConnection<LockedSentinelClient>> {
         self.pool.get().map_err(|e| {
@@ -87,7 +87,7 @@ impl RedisSentinelDataConn {
     /// * `timeout` - A `Duration` to wait for a connection before failing.
     ///
     /// # Returns
-    /// Returns a `Result` containing a `PooledConnection<LockedSentinelClient>` on success, 
+    /// Returns a `Result` containing a `PooledConnection<LockedSentinelClient>` on success,
     /// or a `RedisSentinelSyncError::FailToGetConnectionFromPool` wrapped in `errs::Err` on failure.
     pub fn get_connection_with_timeout(
         &mut self,
@@ -207,7 +207,7 @@ impl DataConn for RedisSentinelDataConn {
 ///
 /// # Examples
 /// ```
-/// use sabi_redis::RedisSentinelDataSrc;
+/// use sabi_redis::sentinel::RedisSentinelDataSrc;
 /// use sabi::DataHub;
 ///
 /// let mut data = DataHub::new();

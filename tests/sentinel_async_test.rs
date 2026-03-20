@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 #[cfg(feature = "sentinel-async")]
 #[cfg(test)]
 mod integration_tests {
