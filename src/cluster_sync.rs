@@ -279,8 +279,8 @@ impl DataSrc<RedisClusterDataConn> for RedisClusterDataSrc {
         let pool = pool_opt.ok_or_else(|| errs::Err::new(RedisClusterSyncError::AlreadySetup))?;
         match pool {
             RedisPool::Builder(cfg) => {
-                let (conn_builder, pool_builder) = *cfg;
-                let client = conn_builder.build().map_err(|e| {
+                let (client_builder, pool_builder) = *cfg;
+                let client = client_builder.build().map_err(|e| {
                     errs::Err::with_source(RedisClusterSyncError::FailToBuildClient, e)
                 })?;
 
