@@ -12,6 +12,7 @@
 //! - **Standalone**: For a single Redis server.
 //! - **Sentinel**: For a Redis Sentinel managed setup, providing automatic failover.
 //! - **Cluster**: For a distributed Redis Cluster setup.
+//! - **Pub/Sub**: For processing Redis Pub/Sub messages within the `sabi` framework.
 //!
 //! Each configuration has both **synchronous** and **asynchronous** (compatible with `tokio`)
 //! implementations, which can be enabled via features.
@@ -47,6 +48,20 @@ mod cluster_sync;
 
 #[cfg(feature = "cluster-async")]
 mod cluster_async;
+
+#[cfg(any(
+    feature = "standalone-sync",
+    feature = "sentinel-sync",
+    feature = "cluster-sync"
+))]
+mod pubsub_sync;
+
+#[cfg(any(
+    feature = "standalone-async",
+    feature = "sentinel-async",
+    feature = "cluster-async"
+))]
+mod pubsub_async;
 
 #[cfg(feature = "standalone-sync")]
 #[cfg_attr(docsrs, doc(cfg(feature = "standalone-sync")))]
@@ -103,4 +118,47 @@ pub mod cluster {
     pub use crate::cluster_async::{
         RedisClusterAsyncDataConn, RedisClusterAsyncDataSrc, RedisClusterAsyncError,
     };
+}
+
+/// This module provides components for processing Redis Pub/Sub messages.
+///
+/// - **Synchronous**: For synchronous processing, it provides components that handle messages
+///   in a blocking manner.
+/// - **Asynchronous**: For asynchronous processing, it provides components that work with
+///   `tokio` and `redis-rs` async Pub/Sub features.
+///
+/// This module allows received messages to be treated as `sabi` data connections. By wrapping
+/// a message in a data connection, it can be passed through the `sabi` data access layer,
+/// making it easy to integrate message handling into your business logic consistently
+/// across Standalone, Sentinel, and Cluster modes.
+pub mod pubsub {
+    #[cfg(any(
+        feature = "standalone-sync",
+        feature = "sentinel-sync",
+        feature = "cluster-sync"
+    ))]
+    #[cfg_attr(
+        docsrs,
+        doc(cfg(any(
+            feature = "standalone-sync",
+            feature = "sentinel-sync",
+            feature = "cluster-sync"
+        )))
+    )]
+    pub use crate::pubsub_sync::{RedisPubSubDataConn, RedisPubSubDataSrc};
+
+    #[cfg(any(
+        feature = "standalone-async",
+        feature = "sentinel-async",
+        feature = "cluster-async"
+    ))]
+    #[cfg_attr(
+        docsrs,
+        doc(cfg(any(
+            feature = "standalone-async",
+            feature = "sentinel-async",
+            feature = "cluster-async"
+        )))
+    )]
+    pub use crate::pubsub_async::{RedisPubSubAsyncDataConn, RedisPubSubAsyncDataSrc};
 }
