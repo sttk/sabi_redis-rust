@@ -45,7 +45,7 @@ impl DataConn for RedisPubSubDataConn {
 /// use sabi::DataHub;
 ///
 /// // Assume `msg` is a `redis::Msg` received from a subscriber.
-/// # let client = redis::Client::open("redis://127.0.0.1/").unwrap();
+/// # let client = redis::Client::open("redis://127.0.0.1/0").unwrap();
 /// # let mut con = client.get_connection().unwrap();
 /// # let mut pubsub = con.as_pubsub();
 /// # pubsub.subscribe(&["channel"]).unwrap();
@@ -122,7 +122,7 @@ mod unit_tests {
     fn test() {
         // client/publish
         let handle = {
-            let client = redis::Client::open("redis://127.0.0.1/").unwrap();
+            let client = redis::Client::open("redis://127.0.0.1/7").unwrap();
             let pool = Pool::builder().build(client).unwrap();
 
             let handle = thread::spawn(move || {
@@ -136,7 +136,7 @@ mod unit_tests {
 
         // server/subscribe
         {
-            let client = redis::Client::open("redis://127.0.0.1/").unwrap();
+            let client = redis::Client::open("redis://127.0.0.1/7").unwrap();
             let mut con = client.get_connection().unwrap();
             let mut pubsub = con.as_pubsub();
             pubsub.subscribe(&["channel_1", "channel_2"]).unwrap();
