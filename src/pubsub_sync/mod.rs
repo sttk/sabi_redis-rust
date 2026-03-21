@@ -2,6 +2,28 @@
 // This program is free software under MIT License.
 // See the file LICENSE in this distribution for more details.
 
+#[cfg(any(
+    feature = "standalone-sync",
+    feature = "sentinel-sync",
+    feature = "cluster-sync"
+))]
+mod retry;
+
+#[cfg(feature = "standalone-sync")]
+mod standalone;
+#[cfg(feature = "standalone-sync")]
+pub use standalone::{RedisPubSub, RedisPubSubError};
+
+#[cfg(feature = "sentinel-sync")]
+mod sentinel;
+#[cfg(feature = "sentinel-sync")]
+pub use sentinel::{RedisPubSubSentinel, RedisPubSubSentinelError};
+
+#[cfg(feature = "cluster-sync")]
+mod cluster;
+#[cfg(feature = "cluster-sync")]
+pub use cluster::{RedisPubSubCluster, RedisPubSubClusterError};
+
 use redis::Msg;
 use sabi::{AsyncGroup, DataConn, DataSrc};
 use std::sync::Arc;
@@ -120,7 +142,7 @@ mod unit_tests {
 
     #[test]
     fn test() {
-        // client/publish
+        // publish
         let handle = {
             let client = redis::Client::open("redis://127.0.0.1/7").unwrap();
             let pool = Pool::builder().build(client).unwrap();
@@ -134,7 +156,7 @@ mod unit_tests {
             handle
         };
 
-        // server/subscribe
+        // subscribe
         {
             let client = redis::Client::open("redis://127.0.0.1/7").unwrap();
             let mut con = client.get_connection().unwrap();
