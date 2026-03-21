@@ -228,7 +228,7 @@ pub struct RedisAsyncDataSrc {
 
 enum RedisPool {
     Object(Pool),
-    Config(Box<Config>),
+    Config(Config),
 }
 
 impl RedisAsyncDataSrc {
@@ -241,11 +241,11 @@ impl RedisAsyncDataSrc {
     /// Returns a new instance of `RedisAsyncDataSrc`.
     pub fn new(addr: impl AsRef<str>) -> Self {
         Self {
-            pool: Some(RedisPool::Config(Box::new(Config {
+            pool: Some(RedisPool::Config(Config {
                 url: Some(addr.as_ref().to_string()),
                 connection: None,
                 pool: Some(PoolConfig::default()),
-            }))),
+            })),
         }
     }
 
@@ -259,11 +259,11 @@ impl RedisAsyncDataSrc {
     /// Returns a new instance of `RedisAsyncDataSrc`.
     pub fn with_pool_config(addr: impl AsRef<str>, pool_config: PoolConfig) -> Self {
         Self {
-            pool: Some(RedisPool::Config(Box::new(Config {
+            pool: Some(RedisPool::Config(Config {
                 url: Some(addr.as_ref().to_string()),
                 connection: None,
                 pool: Some(pool_config),
-            }))),
+            })),
         }
     }
 
@@ -276,7 +276,7 @@ impl RedisAsyncDataSrc {
     /// Returns a new instance of `RedisAsyncDataSrc`.
     pub fn with_config(cfg: Config) -> Self {
         Self {
-            pool: Some(RedisPool::Config(Box::new(cfg))),
+            pool: Some(RedisPool::Config(cfg)),
         }
     }
 }

@@ -217,7 +217,7 @@ where
     T: IntoConnectionInfo + Sized + Debug,
 {
     Object(Pool<Client>),
-    Config(Box<(T, Builder<Client>)>),
+    Config(T, Builder<Client>),
 }
 
 impl<T> RedisDataSrc<T>
@@ -233,7 +233,7 @@ where
     /// Returns a new instance of `RedisDataSrc`.
     pub fn new(addr: T) -> Self {
         Self {
-            pool: Some(RedisPool::Config(Box::new((addr, Pool::builder())))),
+            pool: Some(RedisPool::Config(addr, Pool::builder())),
         }
     }
 
@@ -247,7 +247,7 @@ where
     /// Returns a new instance of `RedisDataSrc`.
     pub fn with_pool_builder(addr: T, pool_builder: Builder<Client>) -> Self {
         Self {
-            pool: Some(RedisPool::Config(Box::new((addr, pool_builder)))),
+            pool: Some(RedisPool::Config(addr, pool_builder)),
         }
     }
 }
@@ -260,9 +260,7 @@ where
         let pool_opt = mem::take(&mut self.pool);
         let pool = pool_opt.ok_or_else(|| errs::Err::new(RedisSyncError::AlreadySetup))?;
         match pool {
-            RedisPool::Config(cfg) => {
-                let (addr, pool_config) = *cfg;
-
+            RedisPool::Config(addr, pool_config) => {
                 let client = Client::open(addr)
                     .map_err(|e| errs::Err::with_source(RedisSyncError::FailToOpenClient, e))?;
 
