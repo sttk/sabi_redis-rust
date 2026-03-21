@@ -217,7 +217,7 @@ pub struct RedisClusterDataSrc {
 
 enum RedisPool {
     Object(Pool<ClusterClient>),
-    Builder(Box<ClusterClientBuilder>, Builder<ClusterClient>),
+    Builder(Box<(ClusterClientBuilder, Builder<ClusterClient>)>),
 }
 
 impl RedisClusterDataSrc {
@@ -235,7 +235,7 @@ impl RedisClusterDataSrc {
     {
         let builder = ClusterClientBuilder::new(addrs);
         Self {
-            pool: Some(RedisPool::Builder(Box::new(builder), Pool::builder())),
+            pool: Some(RedisPool::Builder(Box::new((builder, Pool::builder())))),
         }
     }
 
@@ -248,10 +248,10 @@ impl RedisClusterDataSrc {
     /// Returns a new instance of `RedisClusterDataSrc`.
     pub fn with_client_builder(client_builder: ClusterClientBuilder) -> Self {
         Self {
-            pool: Some(RedisPool::Builder(
-                Box::new(client_builder),
+            pool: Some(RedisPool::Builder(Box::new((
+                client_builder,
                 Pool::builder(),
-            )),
+            )))),
         }
     }
 
@@ -268,7 +268,7 @@ impl RedisClusterDataSrc {
         pool_builder: Builder<ClusterClient>,
     ) -> Self {
         Self {
-            pool: Some(RedisPool::Builder(Box::new(client_builder), pool_builder)),
+            pool: Some(RedisPool::Builder(Box::new((client_builder, pool_builder)))),
         }
     }
 }
@@ -278,7 +278,8 @@ impl DataSrc<RedisClusterDataConn> for RedisClusterDataSrc {
         let pool_opt = mem::take(&mut self.pool);
         let pool = pool_opt.ok_or_else(|| errs::Err::new(RedisClusterSyncError::AlreadySetup))?;
         match pool {
-            RedisPool::Builder(conn_builder, pool_builder) => {
+            RedisPool::Builder(cfg) => {
+                let (conn_builder, pool_builder) = *cfg;
                 let client = conn_builder.build().map_err(|e| {
                     errs::Err::with_source(RedisClusterSyncError::FailToBuildClient, e)
                 })?;

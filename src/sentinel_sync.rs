@@ -230,22 +230,26 @@ where
     pool: Option<RedisPool<T>>,
 }
 
+struct SentinelConfig<T> {
+    addrs: Vec<T>,
+    service_name: String,
+    node_conn_info: Option<SentinelNodeConnectionInfo>,
+    server_type: SentinelServerType,
+    pool_builder: Builder<LockedSentinelClient>,
+}
+
+struct SentinelBuilderConfig {
+    client_builder: SentinelClientBuilder,
+    pool_builder: Builder<LockedSentinelClient>,
+}
+
 enum RedisPool<T>
 where
     T: IntoConnectionInfo,
 {
     Object(Pool<LockedSentinelClient>),
-    Client(
-        #[allow(clippy::type_complexity)]
-        Box<(
-            Vec<T>,
-            String,
-            Option<SentinelNodeConnectionInfo>,
-            SentinelServerType,
-            Builder<LockedSentinelClient>,
-        )>,
-    ),
-    Builder(Box<(SentinelClientBuilder, Builder<LockedSentinelClient>)>),
+    Client(Box<SentinelConfig<T>>),
+    Builder(Box<SentinelBuilderConfig>),
 }
 
 impl<T> RedisSentinelDataSrc<T>
@@ -262,13 +266,13 @@ where
     /// Returns a new instance of `RedisSentinelDataSrc`.
     pub fn new(addrs: Vec<T>, service_name: impl AsRef<str>) -> Self {
         Self {
-            pool: Some(RedisPool::Client(Box::new((
+            pool: Some(RedisPool::Client(Box::new(SentinelConfig {
                 addrs,
-                service_name.as_ref().to_string(),
-                None,
-                SentinelServerType::Master,
-                Pool::builder(),
-            )))),
+                service_name: service_name.as_ref().to_string(),
+                node_conn_info: None,
+                server_type: SentinelServerType::Master,
+                pool_builder: Pool::builder(),
+            }))),
         }
     }
 
@@ -289,13 +293,13 @@ where
         server_type: SentinelServerType,
     ) -> Self {
         Self {
-            pool: Some(RedisPool::Client(Box::new((
+            pool: Some(RedisPool::Client(Box::new(SentinelConfig {
                 addrs,
-                service_name.as_ref().to_string(),
-                Some(node_conn_info),
+                service_name: service_name.as_ref().to_string(),
+                node_conn_info: Some(node_conn_info),
                 server_type,
-                Pool::builder(),
-            )))),
+                pool_builder: Pool::builder(),
+            }))),
         }
     }
 
@@ -318,13 +322,13 @@ where
         pool_builder: Builder<LockedSentinelClient>,
     ) -> Self {
         Self {
-            pool: Some(RedisPool::Client(Box::new((
+            pool: Some(RedisPool::Client(Box::new(SentinelConfig {
                 addrs,
-                service_name.as_ref().to_string(),
-                Some(node_conn_info),
+                service_name: service_name.as_ref().to_string(),
+                node_conn_info: Some(node_conn_info),
                 server_type,
                 pool_builder,
-            )))),
+            }))),
         }
     }
 }
@@ -339,10 +343,10 @@ impl RedisSentinelDataSrc<&'static str> {
     /// Returns a new instance of `RedisSentinelDataSrc`.
     pub fn with_client_builder(client_builder: SentinelClientBuilder) -> Self {
         Self {
-            pool: Some(RedisPool::Builder(Box::new((
+            pool: Some(RedisPool::Builder(Box::new(SentinelBuilderConfig {
                 client_builder,
-                Pool::builder(),
-            )))),
+                pool_builder: Pool::builder(),
+            }))),
         }
     }
 
@@ -359,7 +363,10 @@ impl RedisSentinelDataSrc<&'static str> {
         pool_builder: Builder<LockedSentinelClient>,
     ) -> Self {
         Self {
-            pool: Some(RedisPool::Builder(Box::new((client_builder, pool_builder)))),
+            pool: Some(RedisPool::Builder(Box::new(SentinelBuilderConfig {
+                client_builder,
+                pool_builder,
+            }))),
         }
     }
 }
@@ -372,18 +379,19 @@ where
         let pool_opt = mem::take(&mut self.pool);
         let pool = pool_opt.ok_or_else(|| errs::Err::new(RedisSentinelSyncError::AlreadySetup))?;
         match pool {
-            RedisPool::Client(info) => {
-                let (addrs, service_name, node_conn_info, server_type, pool_builder) = *info;
-                let client =
-                    SentinelClient::build(addrs, service_name, node_conn_info, server_type)
-                        .map_err(|e| {
-                            errs::Err::with_source(
-                                RedisSentinelSyncError::FailToBuildSentinelClient,
-                                e,
-                            )
-                        })?;
+            RedisPool::Client(cfg) => {
+                let client = SentinelClient::build(
+                    cfg.addrs,
+                    cfg.service_name,
+                    cfg.node_conn_info,
+                    cfg.server_type,
+                )
+                .map_err(|e| {
+                    errs::Err::with_source(RedisSentinelSyncError::FailToBuildSentinelClient, e)
+                })?;
 
-                let pool = pool_builder
+                let pool = cfg
+                    .pool_builder
                     .build(LockedSentinelClient::new(client))
                     .map_err(|e| {
                         errs::Err::with_source(RedisSentinelSyncError::FailToBuildPool, e)
@@ -392,13 +400,13 @@ where
                 self.pool = Some(RedisPool::Object(pool));
                 Ok(())
             }
-            RedisPool::Builder(builder) => {
-                let (client_builder, pool_builder) = *builder;
-                let client = client_builder.build().map_err(|e| {
+            RedisPool::Builder(cfg) => {
+                let client = cfg.client_builder.build().map_err(|e| {
                     errs::Err::with_source(RedisSentinelSyncError::FailToBuildSentinelClient, e)
                 })?;
 
-                let pool = pool_builder
+                let pool = cfg
+                    .pool_builder
                     .build(LockedSentinelClient::new(client))
                     .map_err(|e| {
                         errs::Err::with_source(RedisSentinelSyncError::FailToBuildPool, e)
