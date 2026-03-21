@@ -480,7 +480,7 @@ mod unit_tests {
     #[tokio::test]
     async fn test_new_by_str() -> errs::Result<()> {
         let mut data = DataHub::new();
-        data.uses("redis", RedisAsyncDataSrc::new("redis://127.0.0.1:6379/0"));
+        data.uses("redis", RedisAsyncDataSrc::new("redis://127.0.0.1:6379/6"));
         data.run_async(logic!(sample_logic_async)).await?;
         Ok(())
     }
@@ -506,7 +506,7 @@ mod unit_tests {
 
     #[tokio::test]
     async fn test_with_config() -> errs::Result<()> {
-        let url = "redis://127.0.0.1:6379/1".to_string();
+        let url = "redis://127.0.0.1:6379/2".to_string();
         let pool_cfg = PoolConfig {
             max_size: 10,
             timeouts: Timeouts {
@@ -609,14 +609,14 @@ mod unit_tests {
     #[tokio::test]
     async fn test_txn_and_force_back() -> errs::Result<()> {
         let mut data = DataHub::new();
-        data.uses("redis", RedisAsyncDataSrc::new("redis://127.0.0.1:6379/6"));
+        data.uses("redis", RedisAsyncDataSrc::new("redis://127.0.0.1:6379/3"));
         let r = data
             .txn_async(logic!(sample_logic_with_force_back_async_ok))
             .await;
         assert!(r.is_ok());
 
         {
-            let cfg = Config::from_url("redis://127.0.0.1:6379/6");
+            let cfg = Config::from_url("redis://127.0.0.1:6379/3");
             let pool = cfg.create_pool(Some(Runtime::Tokio1)).unwrap();
             let mut conn = pool.get().await.unwrap();
 
@@ -639,7 +639,7 @@ mod unit_tests {
         }
 
         {
-            let cfg = Config::from_url("redis://127.0.0.1:6379/6");
+            let cfg = Config::from_url("redis://127.0.0.1:6379/3");
             let pool = cfg.create_pool(Some(Runtime::Tokio1)).unwrap();
             let mut conn = pool.get().await.unwrap();
 
