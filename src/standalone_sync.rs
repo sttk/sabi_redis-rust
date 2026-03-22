@@ -3,7 +3,7 @@
 // See the file LICENSE in this distribution for more details.
 
 use r2d2::{Builder, Pool, PooledConnection};
-use redis::{Client, Connection, IntoConnectionInfo};
+use redis::{Client, Connection, IntoConnectionInfo, TlsCertificates};
 use sabi::{AsyncGroup, DataConn, DataSrc};
 
 use std::fmt::Debug;
@@ -18,6 +18,8 @@ pub enum RedisSyncError {
     AlreadySetup,
     /// Indicates a failure to open a Redis client.
     FailToOpenClient,
+    /// Indicates a failure to build a Redis client with TLS certificates.
+    FailToBuildWithTls,
     /// Indicates a failure to build a Redis connection pool.
     FailToBuildPool,
     /// Indicates a failure to get a connection from the pool.
@@ -212,12 +214,21 @@ where
     pool: Option<RedisPool<T>>,
 }
 
+struct StandaloneConfig<T>
+where
+    T: IntoConnectionInfo + Sized + Debug,
+{
+    addr: T,
+    tls: Option<TlsCertificates>,
+    pool_builder: Builder<Client>,
+}
+
 enum RedisPool<T>
 where
     T: IntoConnectionInfo + Sized + Debug,
 {
     Object(Pool<Client>),
-    Config(T, Builder<Client>),
+    Config(Box<StandaloneConfig<T>>),
 }
 
 impl<T> RedisDataSrc<T>
@@ -233,7 +244,11 @@ where
     /// Returns a new instance of `RedisDataSrc`.
     pub fn new(addr: T) -> Self {
         Self {
-            pool: Some(RedisPool::Config(addr, Pool::builder())),
+            pool: Some(RedisPool::Config(Box::new(StandaloneConfig {
+                addr,
+                tls: None,
+                pool_builder: Pool::builder(),
+            }))),
         }
     }
 
@@ -247,7 +262,53 @@ where
     /// Returns a new instance of `RedisDataSrc`.
     pub fn with_pool_builder(addr: T, pool_builder: Builder<Client>) -> Self {
         Self {
-            pool: Some(RedisPool::Config(addr, pool_builder)),
+            pool: Some(RedisPool::Config(Box::new(StandaloneConfig {
+                addr,
+                tls: None,
+                pool_builder,
+            }))),
+        }
+    }
+
+    /// Creates a new `RedisDataSrc` with the given Redis address and a TLS certificates.
+    ///
+    /// # Arguments
+    /// * `addr` - The Redis connection address.
+    /// * `tls` - A TLS certificates.
+    ///
+    /// # Returns
+    /// Returns a new instance of `RedisDataSrc`.
+    pub fn with_tls(addr: T, tls: TlsCertificates) -> Self {
+        Self {
+            pool: Some(RedisPool::Config(Box::new(StandaloneConfig {
+                addr,
+                tls: Some(tls),
+                pool_builder: Pool::builder(),
+            }))),
+        }
+    }
+
+    /// Creates a new `RedisDataSrc` with the given Redis address, a TLS certificates and
+    /// a custom pool builder.
+    ///
+    /// # Arguments
+    /// * `addr` - The Redis connection address.
+    /// * `tls` - A TLS certificates.
+    /// * `pool_builder` - A pre-configured `r2d2::Builder`.
+    ///
+    /// # Returns
+    /// Returns a new instance of `RedisDataSrc`.
+    pub fn with_tls_and_pool_builder(
+        addr: T,
+        tls: TlsCertificates,
+        pool_builder: Builder<Client>,
+    ) -> Self {
+        Self {
+            pool: Some(RedisPool::Config(Box::new(StandaloneConfig {
+                addr,
+                tls: Some(tls),
+                pool_builder,
+            }))),
         }
     }
 }
@@ -260,11 +321,17 @@ where
         let pool_opt = mem::take(&mut self.pool);
         let pool = pool_opt.ok_or_else(|| errs::Err::new(RedisSyncError::AlreadySetup))?;
         match pool {
-            RedisPool::Config(addr, pool_config) => {
-                let client = Client::open(addr)
-                    .map_err(|e| errs::Err::with_source(RedisSyncError::FailToOpenClient, e))?;
+            RedisPool::Config(cfg) => {
+                let client = match cfg.tls {
+                    Some(tls) => Client::build_with_tls(cfg.addr, tls).map_err(|e| {
+                        errs::Err::with_source(RedisSyncError::FailToBuildWithTls, e)
+                    })?,
+                    None => Client::open(cfg.addr)
+                        .map_err(|e| errs::Err::with_source(RedisSyncError::FailToOpenClient, e))?,
+                };
 
-                let pool = pool_config
+                let pool = cfg
+                    .pool_builder
                     .build(client)
                     .map_err(|e| errs::Err::with_source(RedisSyncError::FailToBuildPool, e))?;
 
