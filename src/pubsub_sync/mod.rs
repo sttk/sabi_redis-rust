@@ -32,11 +32,11 @@ use std::sync::Arc;
 ///
 /// This structure allows a received Pub/Sub message to be passed through the `sabi` data access
 /// layer. It implements `DataConn`, enabling it to be retrieved by a data access object.
-pub struct RedisPubSubDataConn {
+pub struct RedisPubSubMsgDataConn {
     msg: Arc<Msg>,
 }
 
-impl RedisPubSubDataConn {
+impl RedisPubSubMsgDataConn {
     fn new(msg: Arc<Msg>) -> Self {
         Self { msg }
     }
@@ -47,7 +47,7 @@ impl RedisPubSubDataConn {
     }
 }
 
-impl DataConn for RedisPubSubDataConn {
+impl DataConn for RedisPubSubMsgDataConn {
     fn commit(&mut self, _ag: &mut AsyncGroup) -> errs::Result<()> {
         Ok(())
     }
@@ -63,7 +63,7 @@ impl DataConn for RedisPubSubDataConn {
 /// # Examples
 ///
 /// ```rust,ignore
-/// use sabi_redis::pubsub::{RedisPubSubDataSrc, RedisPubSubDataConn};
+/// use sabi_redis::pubsub::{RedisPubSubMsgDataSrc, RedisPubSubMsgDataConn};
 /// use sabi::DataHub;
 ///
 /// // Assume `msg` is a `redis::Msg` received from a subscriber.
@@ -74,36 +74,36 @@ impl DataConn for RedisPubSubDataConn {
 /// # let msg = pubsub.get_message().unwrap();
 ///
 /// let mut data = DataHub::new();
-/// data.uses("redis/pubsub", RedisPubSubDataSrc::new(msg));
+/// data.uses("redis/pubsub", RedisPubSubMsgDataSrc::new(msg));
 ///
 /// data.run(|acc: &mut DataHub| {
-///     let conn = acc.get_data_conn::<RedisPubSubDataConn>("redis/pubsub")?;
+///     let conn = acc.get_data_conn::<RedisPubSubMsgDataConn>("redis/pubsub")?;
 ///     let message = conn.get_message();
 ///     // Process the message...
 ///     Ok(())
 /// }).unwrap();
 /// ```
-pub struct RedisPubSubDataSrc {
+pub struct RedisPubSubMsgDataSrc {
     msg: Arc<Msg>,
 }
 
-impl RedisPubSubDataSrc {
-    /// Creates a new `RedisPubSubDataSrc` with the given Redis message.
+impl RedisPubSubMsgDataSrc {
+    /// Creates a new `RedisPubSubMsgDataSrc` with the given Redis message.
     pub fn new(msg: Msg) -> Self {
         Self { msg: Arc::new(msg) }
     }
 }
 
-impl DataSrc<RedisPubSubDataConn> for RedisPubSubDataSrc {
+impl DataSrc<RedisPubSubMsgDataConn> for RedisPubSubMsgDataSrc {
     fn setup(&mut self, _ag: &mut AsyncGroup) -> errs::Result<()> {
         Ok(())
     }
 
     fn close(&mut self) {}
 
-    fn create_data_conn(&mut self) -> errs::Result<Box<RedisPubSubDataConn>> {
+    fn create_data_conn(&mut self) -> errs::Result<Box<RedisPubSubMsgDataConn>> {
         let msg = Arc::clone(&self.msg);
-        Ok(Box::new(RedisPubSubDataConn::new(msg)))
+        Ok(Box::new(RedisPubSubMsgDataConn::new(msg)))
     }
 }
 
@@ -125,7 +125,7 @@ mod unit_tests {
     #[overridable]
     trait SampleDataAcc1: sabi::DataAcc {
         fn greet(&mut self) -> errs::Result<String> {
-            let data_conn = self.get_data_conn::<RedisPubSubDataConn>("redis/pubsub")?;
+            let data_conn = self.get_data_conn::<RedisPubSubMsgDataConn>("redis/pubsub")?;
             let msg = data_conn.get_message();
             let payload: String = msg.get_payload().unwrap();
             Ok(payload)
@@ -167,7 +167,7 @@ mod unit_tests {
                 let msg = pubsub.get_message().unwrap();
 
                 let mut data = sabi::DataHub::new();
-                data.uses("redis/pubsub", RedisPubSubDataSrc::new(msg));
+                data.uses("redis/pubsub", RedisPubSubMsgDataSrc::new(msg));
                 if data.run(sample_logic).is_ok() {
                     break;
                 }
