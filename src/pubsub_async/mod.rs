@@ -11,11 +11,11 @@ use std::sync::Arc;
 /// This structure allows a received Pub/Sub message to be passed through the `sabi` data access
 /// layer in an asynchronous context. It implements `DataConn`, enabling it to be retrieved by a
 /// data access object.
-pub struct RedisPubSubAsyncDataConn {
+pub struct RedisPubSubMsgAsyncDataConn {
     msg: Arc<Msg>,
 }
 
-impl RedisPubSubAsyncDataConn {
+impl RedisPubSubMsgAsyncDataConn {
     fn new(msg: Arc<Msg>) -> Self {
         Self { msg }
     }
@@ -26,7 +26,7 @@ impl RedisPubSubAsyncDataConn {
     }
 }
 
-impl DataConn for RedisPubSubAsyncDataConn {
+impl DataConn for RedisPubSubMsgAsyncDataConn {
     async fn commit_async(&mut self, _ag: &mut AsyncGroup) -> errs::Result<()> {
         Ok(())
     }
@@ -42,7 +42,7 @@ impl DataConn for RedisPubSubAsyncDataConn {
 /// # Examples
 ///
 /// ```rust,ignore
-/// use sabi_redis::pubsub_async::{RedisPubSubAsyncDataSrc, RedisPubSubAsyncDataConn};
+/// use sabi_redis::pubsub::{RedisPubSubMsgAsyncDataSrc, RedisPubSubMsgAsyncDataConn};
 /// use sabi::tokio::DataHub;
 /// use futures::StreamExt;
 ///
@@ -54,37 +54,37 @@ impl DataConn for RedisPubSubAsyncDataConn {
 /// # let msg = stream.next().await.unwrap();
 ///
 /// let mut data = DataHub::new();
-/// data.uses("redis/pubsub", RedisPubSubAsyncDataSrc::new(msg));
+/// data.uses("redis/pubsub", RedisPubSubMsgAsyncDataSrc::new(msg));
 ///
 /// data.run_async(|acc: &mut DataHub| async move {
-///     let conn = acc.get_data_conn_async::<RedisPubSubAsyncDataConn>("redis/pubsub").await?;
+///     let conn = acc.get_data_conn_async::<RedisPubSubMsgAsyncDataConn>("redis/pubsub").await?;
 ///     let message = conn.get_message();
 ///     // Process the message...
 ///     Ok(())
 /// }).await.unwrap();
 /// # }
 /// ```
-pub struct RedisPubSubAsyncDataSrc {
+pub struct RedisPubSubMsgAsyncDataSrc {
     msg: Arc<Msg>,
 }
 
-impl RedisPubSubAsyncDataSrc {
-    /// Creates a new `RedisPubSubAsyncDataSrc` with the given Redis message.
+impl RedisPubSubMsgAsyncDataSrc {
+    /// Creates a new `RedisPubSubMsgAsyncDataSrc` with the given Redis message.
     pub fn new(msg: Msg) -> Self {
         Self { msg: Arc::new(msg) }
     }
 }
 
-impl DataSrc<RedisPubSubAsyncDataConn> for RedisPubSubAsyncDataSrc {
+impl DataSrc<RedisPubSubMsgAsyncDataConn> for RedisPubSubMsgAsyncDataSrc {
     async fn setup_async(&mut self, _ag: &mut AsyncGroup) -> errs::Result<()> {
         Ok(())
     }
 
     fn close(&mut self) {}
 
-    async fn create_data_conn_async(&mut self) -> errs::Result<Box<RedisPubSubAsyncDataConn>> {
+    async fn create_data_conn_async(&mut self) -> errs::Result<Box<RedisPubSubMsgAsyncDataConn>> {
         let msg = Arc::clone(&self.msg);
-        Ok(Box::new(RedisPubSubAsyncDataConn::new(msg)))
+        Ok(Box::new(RedisPubSubMsgAsyncDataConn::new(msg)))
     }
 }
 
@@ -109,7 +109,7 @@ mod unit_tests {
     trait SampleAsyncDataAcc1: DataAcc {
         async fn greet_async(&mut self) -> errs::Result<String> {
             let data_conn = self
-                .get_data_conn_async::<RedisPubSubAsyncDataConn>("redis/pubsub")
+                .get_data_conn_async::<RedisPubSubMsgAsyncDataConn>("redis/pubsub")
                 .await?;
             let msg = data_conn.get_message();
             let payload: String = msg.get_payload().unwrap();
@@ -153,7 +153,7 @@ mod unit_tests {
                 let msg = stream.next().await.unwrap();
 
                 let mut data = DataHub::new();
-                data.uses("redis/pubsub", RedisPubSubAsyncDataSrc::new(msg));
+                data.uses("redis/pubsub", RedisPubSubMsgAsyncDataSrc::new(msg));
                 if data.run_async(logic!(sample_logic)).await.is_ok() {
                     break;
                 }

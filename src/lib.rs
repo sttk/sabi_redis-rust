@@ -145,7 +145,7 @@ pub mod pubsub {
             feature = "cluster-sync"
         )))
     )]
-    pub use crate::pubsub_sync::{RedisPubSubDataConn, RedisPubSubDataSrc};
+    pub use crate::pubsub_sync::{RedisPubSubMsgDataConn, RedisPubSubMsgDataSrc};
 
     #[cfg(any(
         feature = "standalone-async",
@@ -160,7 +160,7 @@ pub mod pubsub {
             feature = "cluster-async"
         )))
     )]
-    pub use crate::pubsub_async::{RedisPubSubAsyncDataConn, RedisPubSubAsyncDataSrc};
+    pub use crate::pubsub_async::{RedisPubSubMsgAsyncDataConn, RedisPubSubMsgAsyncDataSrc};
 
     #[cfg(feature = "standalone-sync")]
     #[cfg_attr(docsrs, doc(cfg(feature = "standalone-sync")))]

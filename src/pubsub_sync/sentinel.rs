@@ -230,7 +230,7 @@ where
 #[cfg(test)]
 mod unit_tests {
     use super::*;
-    use crate::pubsub::{RedisPubSubDataConn, RedisPubSubDataSrc};
+    use crate::pubsub::{RedisPubSubMsgDataConn, RedisPubSubMsgDataSrc};
     use crate::sentinel_sync::{RedisSentinelDataConn, RedisSentinelDataSrc};
     use override_macro::{overridable, override_with};
     use redis::{ControlFlow, TypedCommands};
@@ -267,7 +267,7 @@ mod unit_tests {
         }
 
         fn receive_greet(&mut self) -> errs::Result<String> {
-            let data_conn = self.get_data_conn::<RedisPubSubDataConn>("redis/pubsub")?;
+            let data_conn = self.get_data_conn::<RedisPubSubMsgDataConn>("redis/pubsub")?;
             let msg = data_conn.get_message();
             let payload: String = msg.get_payload().unwrap();
             Ok(payload)
@@ -315,7 +315,7 @@ mod unit_tests {
             pubsub.subscribe("channel-2");
             let n = pubsub.receive(|msg| {
                 let mut data = DataHub::new();
-                data.uses("redis/pubsub", RedisPubSubDataSrc::new(msg));
+                data.uses("redis/pubsub", RedisPubSubMsgDataSrc::new(msg));
                 data.run(subscribe_logic).unwrap();
                 ControlFlow::Break(1)
             })?;
