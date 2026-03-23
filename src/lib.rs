@@ -161,4 +161,16 @@ pub mod pubsub {
         )))
     )]
     pub use crate::pubsub_async::{RedisPubSubAsyncDataConn, RedisPubSubAsyncDataSrc};
+
+    #[cfg(feature = "standalone-sync")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "standalone-sync")))]
+    pub use crate::pubsub_sync::{RedisPubSub, RedisPubSubError};
+
+    #[cfg(feature = "sentinel-sync")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "sentinel-sync")))]
+    pub use crate::pubsub_sync::{RedisPubSubSentinel, RedisPubSubSentinelError};
+
+    #[cfg(feature = "cluster-sync")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "cluster-sync")))]
+    pub use crate::pubsub_sync::{RedisPubSubCluster, RedisPubSubClusterError};
 }
