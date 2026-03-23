@@ -37,7 +37,7 @@ impl DataConn for RedisPubSubMsgAsyncDataConn {
 /// A data source that wraps a Redis Pub/Sub message for async operations.
 ///
 /// This structure is used to register a single received message into the `sabi` framework
-/// so that it can be accessed via `RedisPubSubAsyncDataConn` during an async data operation.
+/// so that it can be accessed via `RedisPubSubMsgAsyncDataConn` during an async data operation.
 ///
 /// # Examples
 ///
