@@ -12,7 +12,11 @@
 //! - **Standalone**: For a single Redis server.
 //! - **Sentinel**: For a Redis Sentinel managed setup, providing automatic failover.
 //! - **Cluster**: For a distributed Redis Cluster setup.
-//! - **Pub/Sub**: For processing Redis Pub/Sub messages within the `sabi` framework.
+//! - **Pub/Sub**: For processing Redis Pub/Sub messages. It includes subscribers for:
+//!   - **Standalone**: For a standalone Redis server.
+//!   - **Sentinel**: For a Redis Sentinel setup.
+//!   - **Cluster**: For a Redis Cluster setup.
+//!   Each of these subscribers has both **synchronous** and **asynchronous** implementations.
 //!
 //! Each configuration has both **synchronous** and **asynchronous** (compatible with `tokio`)
 //! implementations, which can be enabled via features.
@@ -173,4 +177,16 @@ pub mod pubsub {
     #[cfg(feature = "cluster-sync")]
     #[cfg_attr(docsrs, doc(cfg(feature = "cluster-sync")))]
     pub use crate::pubsub_sync::{RedisPubSubCluster, RedisPubSubClusterError};
+
+    #[cfg(feature = "standalone-async")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "standalone-async")))]
+    pub use crate::pubsub_async::{RedisPubSubAsync, RedisPubSubAsyncError};
+
+    #[cfg(feature = "sentinel-async")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "sentinel-async")))]
+    pub use crate::pubsub_async::{RedisPubSubSentinelAsync, RedisPubSubSentinelAsyncError};
+
+    #[cfg(feature = "cluster-async")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "cluster-async")))]
+    pub use crate::pubsub_async::{RedisPubSubClusterAsync, RedisPubSubClusterAsyncError};
 }

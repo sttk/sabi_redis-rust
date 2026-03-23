@@ -2,6 +2,28 @@
 // This program is free software under MIT License.
 // See the file LICENSE in this distribution for more details.
 
+#[cfg(any(
+    feature = "standalone-async",
+    feature = "sentinel-async",
+    feature = "cluster-async"
+))]
+mod retry;
+
+#[cfg(feature = "standalone-async")]
+mod standalone;
+#[cfg(feature = "standalone-async")]
+pub use standalone::{RedisPubSubAsync, RedisPubSubAsyncError};
+
+#[cfg(feature = "sentinel-async")]
+mod sentinel;
+#[cfg(feature = "sentinel-async")]
+pub use sentinel::{RedisPubSubSentinelAsync, RedisPubSubSentinelAsyncError};
+
+#[cfg(feature = "cluster-async")]
+mod cluster;
+#[cfg(feature = "cluster-async")]
+pub use cluster::{RedisPubSubClusterAsync, RedisPubSubClusterAsyncError};
+
 use redis::Msg;
 use sabi::tokio::{AsyncGroup, DataConn, DataSrc};
 use std::sync::Arc;
