@@ -35,22 +35,22 @@ In Cargo.toml, write this crate as a dependency:
 
 ```toml
 [dependencies]
-sabi_redis = "0.5.0" # `standalone-sync` feature is enabled by default.
+sabi_redis = "0.6.0" # `standalone-sync` feature is enabled by default.
 
 # If you want to use the `standalone-async` feature:
-# sabi_redis = { version = "0.5.0", default-features = false, features = ["standalone-async"] }
+# sabi_redis = { version = "0.6.0", default-features = false, features = ["standalone-async"] }
 
 # If you want to use the `sentinel-sync` feature:
-# sabi_redis = { version = "0.5.0", default-features = false, features = ["sentinel-sync"] }
+# sabi_redis = { version = "0.6.0", default-features = false, features = ["sentinel-sync"] }
 
 # If you want to use the `sentinel-async` feature:
-# sabi_redis = { version = "0.5.0", default-features = false, features = ["sentinel-async"] }
+# sabi_redis = { version = "0.6.0", default-features = false, features = ["sentinel-async"] }
 
 # If you want to use the `cluster-sync` feature:
-# sabi_redis = { version = "0.5.0", default-features = false, features = ["cluster-sync"] }
+# sabi_redis = { version = "0.6.0", default-features = false, features = ["cluster-sync"] }
 
 # If you want to use the `cluster-async` feature:
-# sabi_redis = { version = "0.5.0", default-features = false, features = ["cluster-async"] }
+# sabi_redis = { version = "0.6.0", default-features = false, features = ["cluster-async"] }
 ```
 
 ## Usage
@@ -443,7 +443,7 @@ Compatibility Check #5: Rust 1.86.0
   [FAIL]   Is incompatible
 
 Result:
-   Considered (min … max):   Rust 1.56.1 … Rust 1.94.0
+   Considered (min … max):   Rust 1.56.1 … Rust 1.94.1
    Search method:            bisect
    MSRV:                     1.87.0
    Target:                   x86_64-apple-darwin
@@ -458,7 +458,7 @@ See the file LICENSE in this distribution for more details.
 
 
 [repo-url]: https://github.com/sttk/sabi_redis-rust
-[cratesio-img]: https://img.shields.io/badge/crates.io-ver.0.5.0-fc8d62?logo=rust
+[cratesio-img]: https://img.shields.io/badge/crates.io-ver.0.6.0-fc8d62?logo=rust
 [cratesio-url]: https://crates.io/crates/sabi_redis
 [docrs-img]: https://img.shields.io/badge/doc.rs-sabi_redis-66c2a5?logo=docs.rs
 [docrs-url]: https://docs.rs/sabi_redis
