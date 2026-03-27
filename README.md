@@ -18,6 +18,12 @@ For Redis Cluster configurations, `RedisClusterDataSrc` and `RedisClusterDataCon
 synchronous connections, while `RedisClusterAsyncDataSrc` and `RedisClusterAsyncDataConn`
 provide asynchronous connections.
 
+For Redis Pub/Sub, `RedisPubSub`, `RedisPubSubSentinel`, and `RedisPubSubCluster` provide
+synchronous subscribers for standalone, Sentinel, and Cluster configurations, respectively.
+Similarly, `RedisPubSubAsync`, `RedisPubSubSentinelAsync`, and `RedisPubSubClusterAsync` provide
+asynchronous subscribers. These subscribers allow received messages to be processed as `sabi` data
+connections, facilitating consistent integration with your business logic.
+
 Unlike relational databases, Redis does not support data rollbacks. This can lead to data
 inconsistency if a transaction involving both Redis and another database fails mid-process.
 To address this, `sabi_redis` offers three unique features to help developers manage Redis updates
@@ -311,6 +317,106 @@ async fn main() -> Result<(), errs::Err> {
     // ...
     Ok(())
 }
+```
+
+### For Pub/Sub Subscribers And Synchronous Messages
+> One of `standalone-sync`, `sentinel-sync`, or `cluster-sync` features is required for this functionality.
+
+Here is an example of how to use `RedisPubSub` to subscribe to a channel and process
+messages synchronously.
+
+```rust
+use redis::ControlFlow;
+use sabi_redis::pubsub::{RedisPubSub, RedisPubSubMsgDataSrc, RedisPubSubMsgDataConn};
+
+fn main() -> Result<(), errs::Err> {
+    let mut pubsub = RedisPubSub::new("redis://127.0.0.1:6379/0");
+    pubsub.subscribe("my-channel");
+
+    pubsub.receive(|msg| {
+        let mut data = sabi::DataHub::new();
+        data.uses("redis/pubsub", RedisPubSubMsgDataSrc::new(msg));
+        data.run(my_logic).unwrap();
+        ControlFlow::Continue
+    })
+}
+
+fn my_logic(data: &mut impl MyData) -> errs::Result<()> {
+    let payload = data.get_message()?;
+    println!("Received: {}", payload);
+    Ok(())
+}
+
+#[overridable]
+trait MyData {
+    fn get_message(&mut self) -> errs::Result<String>;
+}
+
+#[overridable]
+trait MyDataAcc: sabi::DataAcc {
+    fn get_message(&mut self) -> errs::Result<String> {
+        let data_conn = self.get_data_conn::<RedisPubSubMsgDataConn>("redis/pubsub")?;
+        let msg = data_conn.get_message();
+        let payload: String = msg.get_payload().unwrap();
+        Ok(payload)
+    }
+}
+
+impl MyDataAcc for sabi::DataHub {}
+
+#[override_with(MyDataAcc)]
+impl MyData for sabi::DataHub {}
+```
+
+### For Pub/Sub Subscribers And Asynchronous Messages
+> One of `standalone-async`, `sentinel-async`, or `cluster-async` features is required for this functionality.
+
+Here is an example of how to use `RedisPubSubAsync` to subscribe to a channel and process
+messages asynchronously.
+
+```rust
+use redis::ControlFlow;
+use sabi::{logic, setup_async};
+use sabi_redis::pubsub::{RedisPubSubAsync, RedisPubSubMsgAsyncDataSrc, RedisPubSubMsgAsyncDataConn};
+
+#[tokio::main]
+async fn main() -> Result<(), errs::Err> {
+    let mut pubsub = RedisPubSubAsync::new("redis://127.0.0.1:6379/0");
+    pubsub.subscribe("my-channel");
+
+    pubsub.receive_async(async |msg| {
+        let mut data = sabi::tokio::DataHub::new();
+        data.uses("redis/pubsub", RedisPubSubMsgAsyncDataSrc::new(msg));
+        data.run_async(logic!(my_logic_async)).await.unwrap();
+        ControlFlow::Continue
+    }).await
+}
+
+async fn my_logic_async(data: &mut impl MyData) -> errs::Result<()> {
+    let message = data.get_message_async().await?;
+    println!("Received: {}", message);
+    Ok(())
+}
+
+#[overridable]
+trait MyData {
+    async fn get_message_async(&mut self) -> errs::Result<String>;
+}
+
+#[overridable]
+trait MyDataAcc: sabi::tokio::DataAcc {
+    async fn get_message_async(&mut self) -> errs::Result<String> {
+        let data_conn = self.get_data_conn_async::<RedisPubSubMsgAsyncDataConn>("redis/pubsub").await?;
+        let msg = data_conn.get_message();
+        let payload: String = msg.get_payload().unwrap();
+        Ok(payload)
+    }
+}
+
+impl MyDataAcc for sabi::tokio::DataHub {}
+
+#[override_with(MyDataAcc)]
+impl MyData for sabi::tokio::DataHub {}
 ```
 
 ## Supported Rust versions
