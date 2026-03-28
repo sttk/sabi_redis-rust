@@ -49,7 +49,7 @@ mod integration_tests {
     trait RedisSayingDataAcc: DataAcc {
         fn say_greeting(&mut self, greeting: &str) -> errs::Result<()> {
             let data_conn = self.get_data_conn::<RedisClusterDataConn>("redis_cluster")?;
-            let mut redis_conn = data_conn.get_connection()?;
+            let redis_conn = data_conn.get_connection();
 
             if let Err(e) = redis_conn.set("greeting", greeting) {
                 return Err(errs::Err::with_source("fail to set greeting", e));

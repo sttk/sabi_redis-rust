@@ -2,8 +2,8 @@
 // This program is free software under MIT License.
 // See the file LICENSE in this distribution for more details.
 
-use deadpool_redis::Timeouts;
 use deadpool_redis::{Config, Connection, Pool, PoolConfig, Runtime};
+use redis::aio::MultiplexedConnection;
 use sabi::tokio::{AsyncGroup, DataConn, DataSrc};
 
 use std::future::Future;
@@ -39,125 +39,73 @@ type BoxedFuture = pin::Pin<Box<dyn Future<Output = errs::Result<()>> + Send + '
 /// trait MyDataAcc: DataAcc {
 ///     async fn set_value(&mut self, key: &str, val: &str) -> errs::Result<()> {
 ///         let data_conn = self.get_data_conn_async::<RedisAsyncDataConn>("redis").await?;
-///         let mut conn = data_conn.get_connection_async().await?;
+///         let conn = data_conn.get_connection();
 ///         conn.set(key, val).await.map_err(|e| errs::Err::with_source("fail", e))
 ///     }
 /// }
 /// ```
 pub struct RedisAsyncDataConn {
-    pool: Pool,
+    conn: Connection,
     pre_commit_vec: Vec<BoxedFuture>,
     post_commit_vec: Vec<BoxedFuture>,
     force_back_vec: Vec<BoxedFuture>,
 }
 
 impl RedisAsyncDataConn {
-    fn new(pool: Pool) -> Self {
+    fn new(conn: Connection) -> Self {
         Self {
-            pool,
+            conn,
             pre_commit_vec: Vec::new(),
             post_commit_vec: Vec::new(),
             force_back_vec: Vec::new(),
         }
     }
 
-    /// Gets an asynchronous connection from the pool.
+    /// Gets an asynchronous connection.
     ///
     /// # Returns
-    /// Returns a `Result` containing a `Connection` on success,
-    /// or a `RedisAsyncError::FailToGetConnectionFromPool` wrapped in `errs::Err` on failure.
-    pub async fn get_connection_async(&mut self) -> errs::Result<Connection> {
-        self.pool
-            .get()
-            .await
-            .map_err(|e| errs::Err::with_source(RedisAsyncError::FailToGetConnectionFromPool, e))
-    }
-
-    /// Gets an asynchronous connection from the pool with specific timeouts.
-    ///
-    /// # Arguments
-    /// * `timeouts` - A `Timeouts` configuration for getting a connection.
-    ///
-    /// # Returns
-    /// Returns a `Result` containing a `Connection` on success,
-    /// or a `RedisAsyncError::FailToGetConnectionFromPool` wrapped in `errs::Err` on failure.
-    pub async fn get_connection_with_timeout_async(
-        &mut self,
-        timeouts: Timeouts,
-    ) -> errs::Result<Connection> {
-        self.pool
-            .timeout_get(&timeouts)
-            .await
-            .map_err(|e| errs::Err::with_source(RedisAsyncError::FailToGetConnectionFromPool, e))
+    /// Returns a mutable reference to a `MultiplexedConnection`.
+    pub fn get_connection(&mut self) -> &mut MultiplexedConnection {
+        &mut self.conn
     }
 
     /// Adds an asynchronous function to be executed before a commit occurs.
     ///
     /// # Arguments
-    /// * `f` - An async closure or function that takes a `Connection` and returns a `Future`.
+    /// * `f` - An async closure or function that takes a `MultiplexedConnection` and returns a `Future`.
     pub async fn add_pre_commit_async<F, Fut>(&mut self, mut f: F)
     where
-        F: FnMut(Connection) -> Fut,
+        F: FnMut(MultiplexedConnection) -> Fut,
         Fut: Future<Output = errs::Result<()>> + Send + 'static,
     {
-        match self.pool.get().await {
-            Ok(pooled_conn) => {
-                let fut = f(pooled_conn);
-                self.pre_commit_vec.push(Box::pin(fut))
-            }
-            Err(e) => self.pre_commit_vec.push(Box::pin(async move {
-                Err(errs::Err::with_source(
-                    RedisAsyncError::FailToGetConnectionFromPool,
-                    e,
-                ))
-            })),
-        }
+        let fut = f(self.conn.clone());
+        self.pre_commit_vec.push(Box::pin(fut))
     }
 
     /// Adds an asynchronous function to be executed after a successful commit.
     ///
     /// # Arguments
-    /// * `f` - An async closure or function that takes a `Connection` and returns a `Future`.
+    /// * `f` - An async closure or function that takes a `MultiplexedConnection` and returns a `Future`.
     pub async fn add_post_commit_async<F, Fut>(&mut self, mut f: F)
     where
-        F: FnMut(Connection) -> Fut,
+        F: FnMut(MultiplexedConnection) -> Fut,
         Fut: Future<Output = errs::Result<()>> + Send + 'static,
     {
-        match self.pool.get().await {
-            Ok(pooled_conn) => {
-                let fut = f(pooled_conn);
-                self.post_commit_vec.push(Box::pin(fut))
-            }
-            Err(e) => self.post_commit_vec.push(Box::pin(async move {
-                Err(errs::Err::with_source(
-                    RedisAsyncError::FailToGetConnectionFromPool,
-                    e,
-                ))
-            })),
-        }
+        let fut = f(self.conn.clone());
+        self.post_commit_vec.push(Box::pin(fut))
     }
 
     /// Adds an asynchronous function to be executed when a rollback occurs.
     ///
     /// # Arguments
-    /// * `f` - An async closure or function that takes a `Connection` and returns a `Future`.
+    /// * `f` - An async closure or function that takes a `MultiplexedConnection` and returns a `Future`.
     pub async fn add_force_back_async<F, Fut>(&mut self, mut f: F)
     where
-        F: FnMut(Connection) -> Fut,
+        F: FnMut(MultiplexedConnection) -> Fut,
         Fut: Future<Output = errs::Result<()>> + Send + 'static,
     {
-        match self.pool.get().await {
-            Ok(pooled_conn) => {
-                let fut = f(pooled_conn);
-                self.force_back_vec.push(Box::pin(fut))
-            }
-            Err(e) => self.force_back_vec.push(Box::pin(async move {
-                Err(errs::Err::with_source(
-                    RedisAsyncError::FailToGetConnectionFromPool,
-                    e,
-                ))
-            })),
-        }
+        let fut = f(self.conn.clone());
+        self.force_back_vec.push(Box::pin(fut))
     }
 }
 
@@ -309,7 +257,13 @@ impl DataSrc<RedisAsyncDataConn> for RedisAsyncDataSrc {
             .as_mut()
             .ok_or_else(|| errs::Err::new(RedisAsyncError::NotSetupYet))?;
         match pool {
-            RedisPool::Object(pool) => Ok(Box::new(RedisAsyncDataConn::new(pool.clone()))),
+            RedisPool::Object(pool) => match pool.get().await {
+                Ok(conn) => Ok(Box::new(RedisAsyncDataConn::new(conn))),
+                Err(e) => Err(errs::Err::with_source(
+                    RedisAsyncError::FailToGetConnectionFromPool,
+                    e,
+                )),
+            },
             _ => Err(errs::Err::new(RedisAsyncError::NotSetupYet)),
         }
     }
@@ -337,7 +291,7 @@ mod unit_tests {
             let data_conn = self
                 .get_data_conn_async::<RedisAsyncDataConn>("redis")
                 .await?;
-            let mut conn = data_conn.get_connection_async().await?;
+            let conn = data_conn.get_connection();
             conn.get("sample_async")
                 .await
                 .map_err(|e| errs::Err::with_source(SampleAsyncError::FailToGetValue, e))
@@ -346,9 +300,7 @@ mod unit_tests {
             let data_conn = self
                 .get_data_conn_async::<RedisAsyncDataConn>("redis")
                 .await?;
-            let mut conn = data_conn
-                .get_connection_with_timeout_async(Timeouts::wait_millis(1000))
-                .await?;
+            let conn = data_conn.get_connection();
             conn.set("sample_async", val)
                 .await
                 .map_err(|e| errs::Err::with_source(SampleAsyncError::FailToSetValue, e))
@@ -357,7 +309,7 @@ mod unit_tests {
             let data_conn = self
                 .get_data_conn_async::<RedisAsyncDataConn>("redis")
                 .await?;
-            let mut conn = data_conn.get_connection_async().await?;
+            let conn = data_conn.get_connection();
             conn.del("sample_async")
                 .await
                 .map_err(|e| errs::Err::with_source(SampleAsyncError::FailToDelValue, e))
@@ -367,13 +319,12 @@ mod unit_tests {
             let data_conn = self
                 .get_data_conn_async::<RedisAsyncDataConn>("redis")
                 .await?;
-            let mut conn = data_conn
-                .get_connection_with_timeout_async(Timeouts::wait_millis(1000))
-                .await?;
-
-            conn.set::<&str, &str, ()>("sample_force_back_async", val)
-                .await
-                .map_err(|e| errs::Err::with_source(SampleAsyncError::FailToSetValue, e))?;
+            {
+                let conn = data_conn.get_connection();
+                conn.set::<&str, &str, ()>("sample_force_back_async", val)
+                    .await
+                    .map_err(|e| errs::Err::with_source(SampleAsyncError::FailToSetValue, e))?;
+            }
 
             data_conn
                 .add_force_back_async(async |mut conn| {
@@ -383,9 +334,12 @@ mod unit_tests {
                 })
                 .await;
 
-            conn.set::<&str, &str, ()>("sample_force_back_async_2", val)
-                .await
-                .map_err(|e| errs::Err::with_source(SampleAsyncError::FailToSetValue, e))?;
+            {
+                let conn = data_conn.get_connection();
+                conn.set::<&str, &str, ()>("sample_force_back_async_2", val)
+                    .await
+                    .map_err(|e| errs::Err::with_source(SampleAsyncError::FailToSetValue, e))?;
+            }
 
             data_conn
                 .add_force_back_async(async |mut conn| {

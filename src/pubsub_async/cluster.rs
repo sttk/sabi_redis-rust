@@ -192,7 +192,7 @@ mod unit_tests {
             let data_conn = self
                 .get_data_conn_async::<RedisClusterAsyncDataConn>("redis")
                 .await?;
-            let mut conn = data_conn.get_connection_async().await?;
+            let conn = data_conn.get_connection();
             time::sleep(time::Duration::from_millis(100)).await;
             conn.publish("channel-1", s).await.unwrap();
             Ok(())

@@ -108,7 +108,7 @@ trait RedisSayingDataAcc: sabi::DataAcc {
         let data_conn = self.get_data_conn::<RedisDataConn>("redis")?;
 
         // Get a Redis connection to execute Redis synchronous commands.
-        let mut redis_conn = data_conn.get_connection()?;
+        let redis_conn = data_conn.get_connection();
 
         redis_conn.set("greeting", greeting)
             .map_err(|e| errs::Err::with_source("fail to set greeting", e))?;
@@ -186,7 +186,7 @@ trait RedisSayingDataAcc: sabi::tokio::DataAcc {
         let data_conn = self.get_data_conn_async::<RedisAsyncDataConn>("redis").await?;
 
         // Get an asynchronous Redis connection to execute Redis commands.
-        let mut redis_conn = data_conn.get_connection_async().await?;
+        let redis_conn = data_conn.get_connection();
 
         redis_conn.set("greeting", greeting)
             .await
