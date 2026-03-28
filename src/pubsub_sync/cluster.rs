@@ -185,7 +185,7 @@ mod unit_tests {
     trait RedisPubSubClusterDataAcc: DataAcc {
         fn say_greet(&mut self, s: &str) -> errs::Result<()> {
             let data_conn = self.get_data_conn::<RedisClusterDataConn>("redis")?;
-            let mut conn = data_conn.get_connection()?;
+            let conn = data_conn.get_connection();
             std::thread::sleep(std::time::Duration::from_millis(100));
             conn.publish("channel-3", s).unwrap();
             Ok(())

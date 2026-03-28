@@ -9,7 +9,7 @@ use redis::cluster::{ClusterClient, ClusterClientBuilder, ClusterConnection};
 use redis::IntoConnectionInfo;
 
 use std::fmt::Debug;
-use std::{mem, time};
+use std::mem;
 
 /// The error type for synchronous Redis Cluster operations.
 #[derive(Debug)]
@@ -29,7 +29,7 @@ pub enum RedisClusterSyncError {
 #[allow(clippy::type_complexity)]
 /// A data connection for a Redis Cluster, providing synchronous operations.
 ///
-/// This structure holds a connection pool for a Redis Cluster and allows for adding hooks
+/// This structure holds a pooled connection for a Redis Cluster and allows for adding hooks
 /// (pre-commit, post-commit, and force-back) that are executed during the lifecycle
 /// of a data operation managed by `sabi`.
 ///
@@ -42,22 +42,22 @@ pub enum RedisClusterSyncError {
 /// trait MyDataAcc: DataAcc {
 ///     fn set_value(&mut self, key: &str, val: &str) -> errs::Result<()> {
 ///         let data_conn = self.get_data_conn::<RedisClusterDataConn>("redis")?;
-///         let mut conn = data_conn.get_connection()?;
+///         let conn = data_conn.get_connection();
 ///         conn.set(key, val).map_err(|e| errs::Err::with_source("fail", e))
 ///     }
 /// }
 /// ```
 pub struct RedisClusterDataConn {
-    pool: Pool<ClusterClient>,
+    conn: PooledConnection<ClusterClient>,
     pre_commit_vec: Vec<Box<dyn FnMut(&mut ClusterConnection) -> errs::Result<()>>>,
     post_commit_vec: Vec<Box<dyn FnMut(&mut ClusterConnection) -> errs::Result<()>>>,
     force_back_vec: Vec<Box<dyn FnMut(&mut ClusterConnection) -> errs::Result<()>>>,
 }
 
 impl RedisClusterDataConn {
-    fn new(pool: Pool<ClusterClient>) -> Self {
+    fn new(conn: PooledConnection<ClusterClient>) -> Self {
         Self {
-            pool,
+            conn,
             pre_commit_vec: Vec::new(),
             post_commit_vec: Vec::new(),
             force_back_vec: Vec::new(),
@@ -67,37 +67,9 @@ impl RedisClusterDataConn {
     /// Gets a cluster connection from the pool.
     ///
     /// # Returns
-    /// Returns a `Result` containing a `PooledConnection<ClusterClient>` on success,
-    /// or a `RedisClusterSyncError::FailToGetConnectionFromPool` wrapped in `errs::Err` on failure.
-    pub fn get_connection(&mut self) -> errs::Result<PooledConnection<ClusterClient>> {
-        self.pool.get().map_err(|e| {
-            errs::Err::with_source(RedisClusterSyncError::FailToGetConnectionFromPool, e)
-        })
-    }
-
-    /// Gets a cluster connection from the pool with a specific timeout.
-    ///
-    /// # Arguments
-    /// * `timeout` - A `Duration` to wait for a connection before failing.
-    ///
-    /// # Returns
-    /// Returns a `Result` containing a `PooledConnection<ClusterClient>` on success,
-    /// or a `RedisClusterSyncError::FailToGetConnectionFromPool` wrapped in `errs::Err` on failure.
-    pub fn get_connection_with_timeout(
-        &self,
-        timeout: time::Duration,
-    ) -> errs::Result<PooledConnection<ClusterClient>> {
-        self.pool.get_timeout(timeout).map_err(|e| {
-            errs::Err::with_source(RedisClusterSyncError::FailToGetConnectionFromPool, e)
-        })
-    }
-
-    /// Tries to get a cluster connection from the pool immediately without waiting.
-    ///
-    /// # Returns
-    /// Returns `Some(PooledConnection<ClusterClient>)` if a connection is available, otherwise `None`.
-    pub fn try_get_connection(&self) -> Option<PooledConnection<ClusterClient>> {
-        self.pool.try_get()
+    /// Returns a mutable reference to a `PooledConnection<ClusterClient>`.
+    pub fn get_connection(&mut self) -> &mut PooledConnection<ClusterClient> {
+        &mut self.conn
     }
 
     /// Adds a function to be executed before a commit occurs in the `sabi` lifecycle.
@@ -136,18 +108,10 @@ impl RedisClusterDataConn {
 
 impl DataConn for RedisClusterDataConn {
     fn pre_commit(&mut self, _ag: &mut AsyncGroup) -> errs::Result<()> {
-        match self.pool.get() {
-            Ok(mut conn) => {
-                for f in self.pre_commit_vec.iter_mut() {
-                    f(&mut conn)?;
-                }
-                Ok(())
-            }
-            Err(e) => Err(errs::Err::with_source(
-                RedisClusterSyncError::FailToGetConnectionFromPool,
-                e,
-            )),
+        for f in self.pre_commit_vec.iter_mut() {
+            f(&mut self.conn)?;
         }
+        Ok(())
     }
 
     fn commit(&mut self, _ag: &mut AsyncGroup) -> errs::Result<()> {
@@ -155,19 +119,10 @@ impl DataConn for RedisClusterDataConn {
     }
 
     fn post_commit(&mut self, _ag: &mut AsyncGroup) {
-        match self.pool.get() {
-            Ok(mut conn) => {
-                for f in self.post_commit_vec.iter_mut() {
-                    // for error notification
-                    let _ = f(&mut conn);
-                }
-            }
-            Err(e) => {
-                // for error notification
-                let _ =
-                    errs::Err::with_source(RedisClusterSyncError::FailToGetConnectionFromPool, e);
-            }
-        };
+        for f in self.post_commit_vec.iter_mut() {
+            // for error notification
+            let _ = f(&mut self.conn);
+        }
     }
 
     fn rollback(&mut self, _ag: &mut AsyncGroup) {}
@@ -177,25 +132,17 @@ impl DataConn for RedisClusterDataConn {
     }
 
     fn force_back(&mut self, _ag: &mut AsyncGroup) {
-        match self.pool.get() {
-            Ok(mut conn) => {
-                for f in self.force_back_vec.iter_mut().rev() {
-                    // for error notification
-                    let _ = f(&mut conn);
-                }
-            }
-            Err(e) => {
-                // for error notification
-                let _ =
-                    errs::Err::with_source(RedisClusterSyncError::FailToGetConnectionFromPool, e);
-            }
-        };
+        for f in self.force_back_vec.iter_mut().rev() {
+            // for error notification
+            let _ = f(&mut self.conn);
+        }
     }
 
     fn close(&mut self) {}
 }
 
-/// A data source for Redis Cluster, used to initialize and provide `RedisClusterDataConn` instances.
+/// A data source for Redis Cluster, used to initialize and provide `RedisClusterDataConn`
+/// instances.
 ///
 /// This struct implements the `DataSrc` trait from the `sabi` library.
 ///
@@ -303,7 +250,13 @@ impl DataSrc<RedisClusterDataConn> for RedisClusterDataSrc {
             .as_mut()
             .ok_or_else(|| errs::Err::new(RedisClusterSyncError::NotSetupYet))?;
         match pool {
-            RedisPool::Object(pool) => Ok(Box::new(RedisClusterDataConn::new(pool.clone()))),
+            RedisPool::Object(pool) => match pool.get() {
+                Ok(conn) => Ok(Box::new(RedisClusterDataConn::new(conn))),
+                Err(e) => Err(errs::Err::with_source(
+                    RedisClusterSyncError::FailToGetConnectionFromPool,
+                    e,
+                )),
+            },
             _ => Err(errs::Err::new(RedisClusterSyncError::NotSetupYet)),
         }
     }
@@ -328,38 +281,42 @@ mod unit_tests {
     trait RedisClusterSampleDataAcc: DataAcc {
         fn get_sample_key(&mut self) -> errs::Result<Option<String>> {
             let data_conn = self.get_data_conn::<RedisClusterDataConn>("redis")?;
-            let mut conn = data_conn.get_connection()?;
+            let conn = data_conn.get_connection();
             conn.get("sample_cluster")
                 .map_err(|e| errs::Err::with_source(SampleError::FailToGetValue, e))
         }
         fn set_sample_key(&mut self, val: &str) -> errs::Result<()> {
             let data_conn = self.get_data_conn::<RedisClusterDataConn>("redis")?;
-            let mut conn =
-                data_conn.get_connection_with_timeout(time::Duration::from_millis(1000))?;
+            let conn = data_conn.get_connection();
             conn.set("sample_cluster", val)
                 .map_err(|e| errs::Err::with_source(SampleError::FailToSetValue, e))
         }
         fn del_sample_key(&mut self) -> errs::Result<()> {
             let data_conn = self.get_data_conn::<RedisClusterDataConn>("redis")?;
-            let mut conn = data_conn.try_get_connection().unwrap();
+            let conn = data_conn.get_connection();
             conn.del("sample_cluster")
                 .map_err(|e| errs::Err::with_source(SampleError::FailToDelValue, e))
         }
 
         fn set_sample_key_with_force_back(&mut self, val: &str) -> errs::Result<()> {
             let data_conn = self.get_data_conn::<RedisClusterDataConn>("redis")?;
-            let mut conn = data_conn.get_connection()?;
 
-            conn.set::<&str, &str, ()>("sample_force_back_cluster", val)
-                .map_err(|e| errs::Err::with_source(SampleError::FailToSetValue, e))?;
+            {
+                let conn = data_conn.get_connection();
+                conn.set::<&str, &str, ()>("sample_force_back_cluster", val)
+                    .map_err(|e| errs::Err::with_source(SampleError::FailToSetValue, e))?;
+            }
 
             data_conn.add_force_back(|conn| {
                 conn.del("sample_force_back_cluster")
                     .map_err(|e| errs::Err::with_source("fail to force back", e))
             });
 
-            conn.set::<&str, &str, ()>("sample_force_back_cluster_2", val)
-                .map_err(|e| errs::Err::with_source(SampleError::FailToSetValue, e))?;
+            {
+                let conn = data_conn.get_connection();
+                conn.set::<&str, &str, ()>("sample_force_back_cluster_2", val)
+                    .map_err(|e| errs::Err::with_source(SampleError::FailToSetValue, e))?;
+            }
 
             data_conn.add_force_back(|conn| {
                 conn.del("sample_force_back_cluster_2")

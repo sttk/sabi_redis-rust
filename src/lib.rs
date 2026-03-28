@@ -16,7 +16,7 @@
 //!   - **Standalone**: For a standalone Redis server.
 //!   - **Sentinel**: For a Redis Sentinel setup.
 //!   - **Cluster**: For a Redis Cluster setup.
-//!   Each of these subscribers has both **synchronous** and **asynchronous** implementations.
+//!     Each of these subscribers has both **synchronous** and **asynchronous** implementations.
 //!
 //! Each configuration has both **synchronous** and **asynchronous** (compatible with `tokio`)
 //! implementations, which can be enabled via features.

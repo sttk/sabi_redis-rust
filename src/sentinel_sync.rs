@@ -11,7 +11,7 @@ use redis::{Connection, IntoConnectionInfo};
 use sabi::{AsyncGroup, DataConn, DataSrc};
 
 use std::fmt::Debug;
-use std::{mem, time};
+use std::mem;
 
 /// The error type for synchronous Redis Sentinel operations.
 #[derive(Debug)]
@@ -35,7 +35,7 @@ pub enum RedisSentinelSyncError {
 #[allow(clippy::type_complexity)]
 /// A data connection for Redis Sentinel, providing synchronous operations.
 ///
-/// This structure holds a connection pool for a Redis Sentinel-managed setup
+/// This structure holds a pooled connection for a Redis Sentinel-managed setup
 /// and allows for adding hooks (pre-commit, post-commit, and force-back)
 /// that are executed during the lifecycle of a data operation managed by `sabi`.
 ///
@@ -48,22 +48,22 @@ pub enum RedisSentinelSyncError {
 /// trait MyDataAcc: DataAcc {
 ///     fn set_value(&mut self, key: &str, val: &str) -> errs::Result<()> {
 ///         let data_conn = self.get_data_conn::<RedisSentinelDataConn>("redis")?;
-///         let mut conn = data_conn.get_connection()?;
+///         let conn = data_conn.get_connection();
 ///         conn.set(key, val).map_err(|e| errs::Err::with_source("fail", e))
 ///     }
 /// }
 /// ```
 pub struct RedisSentinelDataConn {
-    pool: Pool<LockedSentinelClient>,
+    conn: PooledConnection<LockedSentinelClient>,
     pre_commit_vec: Vec<Box<dyn FnMut(&mut Connection) -> errs::Result<()>>>,
     post_commit_vec: Vec<Box<dyn FnMut(&mut Connection) -> errs::Result<()>>>,
     force_back_vec: Vec<Box<dyn FnMut(&mut Connection) -> errs::Result<()>>>,
 }
 
 impl RedisSentinelDataConn {
-    fn new(pool: Pool<LockedSentinelClient>) -> Self {
+    fn new(conn: PooledConnection<LockedSentinelClient>) -> Self {
         Self {
-            pool,
+            conn,
             pre_commit_vec: Vec::new(),
             post_commit_vec: Vec::new(),
             force_back_vec: Vec::new(),
@@ -73,37 +73,9 @@ impl RedisSentinelDataConn {
     /// Gets a Sentinel-managed connection from the pool.
     ///
     /// # Returns
-    /// Returns a `Result` containing a `PooledConnection<LockedSentinelClient>` on success,
-    /// or a `RedisSentinelSyncError::FailToGetConnectionFromPool` wrapped in `errs::Err` on failure.
-    pub fn get_connection(&mut self) -> errs::Result<PooledConnection<LockedSentinelClient>> {
-        self.pool.get().map_err(|e| {
-            errs::Err::with_source(RedisSentinelSyncError::FailToGetConnectionFromPool, e)
-        })
-    }
-
-    /// Gets a Sentinel-managed connection from the pool with a specific timeout.
-    ///
-    /// # Arguments
-    /// * `timeout` - A `Duration` to wait for a connection before failing.
-    ///
-    /// # Returns
-    /// Returns a `Result` containing a `PooledConnection<LockedSentinelClient>` on success,
-    /// or a `RedisSentinelSyncError::FailToGetConnectionFromPool` wrapped in `errs::Err` on failure.
-    pub fn get_connection_with_timeout(
-        &mut self,
-        timeout: time::Duration,
-    ) -> errs::Result<PooledConnection<LockedSentinelClient>> {
-        self.pool.get_timeout(timeout).map_err(|e| {
-            errs::Err::with_source(RedisSentinelSyncError::FailToGetConnectionFromPool, e)
-        })
-    }
-
-    /// Tries to get a Sentinel-managed connection from the pool immediately without waiting.
-    ///
-    /// # Returns
-    /// Returns `Some(PooledConnection<LockedSentinelClient>)` if a connection is available, otherwise `None`.
-    pub fn try_get_connection(&self) -> Option<PooledConnection<LockedSentinelClient>> {
-        self.pool.try_get()
+    /// Returns a mutable reference to a `PooledConnection<LockedSentinelClient>`.
+    pub fn get_connection(&mut self) -> &mut PooledConnection<LockedSentinelClient> {
+        &mut self.conn
     }
 
     /// Adds a function to be executed before a commit occurs in the `sabi` lifecycle.
@@ -142,18 +114,10 @@ impl RedisSentinelDataConn {
 
 impl DataConn for RedisSentinelDataConn {
     fn pre_commit(&mut self, _ag: &mut AsyncGroup) -> errs::Result<()> {
-        match self.pool.get() {
-            Ok(mut conn) => {
-                for f in self.pre_commit_vec.iter_mut() {
-                    f(&mut conn)?;
-                }
-                Ok(())
-            }
-            Err(e) => Err(errs::Err::with_source(
-                RedisSentinelSyncError::FailToGetConnectionFromPool,
-                e,
-            )),
+        for f in self.pre_commit_vec.iter_mut() {
+            f(&mut self.conn)?;
         }
+        Ok(())
     }
 
     fn commit(&mut self, _ag: &mut AsyncGroup) -> errs::Result<()> {
@@ -161,19 +125,10 @@ impl DataConn for RedisSentinelDataConn {
     }
 
     fn post_commit(&mut self, _ag: &mut AsyncGroup) {
-        match self.pool.get() {
-            Ok(mut conn) => {
-                for f in self.post_commit_vec.iter_mut() {
-                    // for error notification
-                    let _ = f(&mut conn);
-                }
-            }
-            Err(e) => {
-                // for error notification
-                let _ =
-                    errs::Err::with_source(RedisSentinelSyncError::FailToGetConnectionFromPool, e);
-            }
-        };
+        for f in self.post_commit_vec.iter_mut() {
+            // for error notification
+            let _ = f(&mut self.conn);
+        }
     }
 
     fn rollback(&mut self, _ag: &mut AsyncGroup) {}
@@ -183,19 +138,10 @@ impl DataConn for RedisSentinelDataConn {
     }
 
     fn force_back(&mut self, _ag: &mut AsyncGroup) {
-        match self.pool.get() {
-            Ok(mut conn) => {
-                for f in self.force_back_vec.iter_mut().rev() {
-                    // for error notification
-                    let _ = f(&mut conn);
-                }
-            }
-            Err(e) => {
-                // for error notification
-                let _ =
-                    errs::Err::with_source(RedisSentinelSyncError::FailToGetConnectionFromPool, e);
-            }
-        };
+        for f in self.force_back_vec.iter_mut().rev() {
+            // for error notification
+            let _ = f(&mut self.conn);
+        }
     }
 
     fn close(&mut self) {}
@@ -428,7 +374,13 @@ where
             .as_mut()
             .ok_or_else(|| errs::Err::new(RedisSentinelSyncError::NotSetupYet))?;
         match pool {
-            RedisPool::Object(pool) => Ok(Box::new(RedisSentinelDataConn::new(pool.clone()))),
+            RedisPool::Object(pool) => match pool.get() {
+                Ok(conn) => Ok(Box::new(RedisSentinelDataConn::new(conn))),
+                Err(e) => Err(errs::Err::with_source(
+                    RedisSentinelSyncError::FailToGetConnectionFromPool,
+                    e,
+                )),
+            },
             _ => Err(errs::Err::new(RedisSentinelSyncError::NotSetupYet)),
         }
     }
@@ -454,38 +406,42 @@ mod unit_tests {
     trait RedisSentinelSampleDataAcc: DataAcc {
         fn get_sample_key(&mut self) -> errs::Result<Option<String>> {
             let data_conn = self.get_data_conn::<RedisSentinelDataConn>("redis")?;
-            let mut conn = data_conn.get_connection()?;
+            let conn = data_conn.get_connection();
             conn.get("sample_sentinel")
                 .map_err(|e| errs::Err::with_source(SampleError::FailToGetValue, e))
         }
         fn set_sample_key(&mut self, val: &str) -> errs::Result<()> {
             let data_conn = self.get_data_conn::<RedisSentinelDataConn>("redis")?;
-            let mut conn =
-                data_conn.get_connection_with_timeout(time::Duration::from_millis(1000))?;
+            let conn = data_conn.get_connection();
             conn.set("sample_sentinel", val)
                 .map_err(|e| errs::Err::with_source(SampleError::FailToGetValue, e))
         }
         fn del_sample_key(&mut self) -> errs::Result<()> {
             let data_conn = self.get_data_conn::<RedisSentinelDataConn>("redis")?;
-            let mut conn = data_conn.try_get_connection().unwrap();
+            let conn = data_conn.get_connection();
             conn.del("sample_sentinel")
                 .map_err(|e| errs::Err::with_source(SampleError::FailToDelValue, e))
         }
 
         fn set_sample_key_with_force_back(&mut self, val: &str) -> errs::Result<()> {
             let data_conn = self.get_data_conn::<RedisSentinelDataConn>("redis")?;
-            let mut conn = data_conn.get_connection()?;
 
-            conn.set::<&str, &str, ()>("sample_force_back_sentinel", val)
-                .map_err(|e| errs::Err::with_source(SampleError::FailToSetValue, e))?;
+            {
+                let conn = data_conn.get_connection();
+                conn.set::<&str, &str, ()>("sample_force_back_sentinel", val)
+                    .map_err(|e| errs::Err::with_source(SampleError::FailToSetValue, e))?;
+            }
 
             data_conn.add_force_back(|conn| {
                 conn.del("sample_force_back_sentinel")
                     .map_err(|e| errs::Err::with_source("fail to force back", e))
             });
 
-            conn.set::<&str, &str, ()>("sample_force_back_sentinel_2", val)
-                .map_err(|e| errs::Err::with_source(SampleError::FailToSetValue, e))?;
+            {
+                let conn = data_conn.get_connection();
+                conn.set::<&str, &str, ()>("sample_force_back_sentinel_2", val)
+                    .map_err(|e| errs::Err::with_source(SampleError::FailToSetValue, e))?;
+            }
 
             data_conn.add_force_back(|conn| {
                 conn.del("sample_force_back_sentinel_2")

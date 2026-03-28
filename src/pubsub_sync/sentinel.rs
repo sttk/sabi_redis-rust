@@ -260,7 +260,7 @@ mod unit_tests {
     trait RedisPubSubDataAcc: DataAcc {
         fn say_greet(&mut self, s: &str) -> errs::Result<()> {
             let data_conn = self.get_data_conn::<RedisSentinelDataConn>("redis")?;
-            let mut conn = data_conn.get_connection()?;
+            let conn = data_conn.get_connection();
             std::thread::sleep(std::time::Duration::from_millis(100));
             conn.publish("channel-2", s).unwrap();
             Ok(())

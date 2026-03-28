@@ -50,7 +50,7 @@ mod integration_tests {
             let data_conn = self
                 .get_data_conn_async::<RedisClusterAsyncDataConn>("redis_cluster")
                 .await?;
-            let mut redis_conn = data_conn.get_connection_async().await?;
+            let redis_conn = data_conn.get_connection();
 
             redis_conn
                 .set::<_, _, ()>("greeting", greeting)
