@@ -38,7 +38,7 @@ type BoxedFuture = pin::Pin<Box<dyn Future<Output = errs::Result<()>> + Send + '
 /// trait MyDataAcc: DataAcc {
 ///     async fn set_value(&mut self, key: &str, val: &str) -> errs::Result<()> {
 ///         let data_conn = self.get_data_conn_async::<RedisClusterAsyncDataConn>("redis").await?;
-///         let mut conn = data_conn.get_connection_async().await?;
+///         let mut conn = data_conn.get_connection();
 ///         conn.set(key, val).await.map_err(|e| errs::Err::with_source("fail", e))
 ///     }
 /// }
