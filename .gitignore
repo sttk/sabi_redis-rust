@@ -13,3 +13,6 @@ Cargo.lock
 dump.rdb
 appendonlydir
 nodes.conf
+
+# Sentinel config file
+env/sentinel/sentinel-*.conf
