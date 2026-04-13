@@ -75,6 +75,14 @@ pub use standalone_sync::{RedisDataConn, RedisDataSrc, RedisSyncError};
 #[cfg_attr(docsrs, doc(cfg(feature = "standalone-async")))]
 pub use standalone_async::{RedisAsyncDataConn, RedisAsyncDataSrc, RedisAsyncError};
 
+#[cfg(feature = "standalone-sync")]
+#[cfg_attr(docsrs, doc(cfg(feature = "standalone-sync")))]
+pub use crate::pubsub_sync::{RedisPubSub, RedisPubSubError};
+
+#[cfg(feature = "standalone-async")]
+#[cfg_attr(docsrs, doc(cfg(feature = "standalone-async")))]
+pub use crate::pubsub_async::{RedisPubSubAsync, RedisPubSubAsyncError};
+
 #[cfg(any(feature = "sentinel-sync", feature = "sentinel-async"))]
 /// This module provides components for connecting to a Redis Sentinel managed setup.
 ///
@@ -97,6 +105,14 @@ pub mod sentinel {
     pub use crate::sentinel_async::{
         RedisSentinelAsyncDataConn, RedisSentinelAsyncDataSrc, RedisSentinelAsyncError,
     };
+
+    #[cfg(feature = "sentinel-sync")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "sentinel-sync")))]
+    pub use crate::pubsub_sync::{RedisPubSubSentinel, RedisPubSubSentinelError};
+
+    #[cfg(feature = "sentinel-async")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "sentinel-async")))]
+    pub use crate::pubsub_async::{RedisPubSubSentinelAsync, RedisPubSubSentinelAsyncError};
 }
 
 #[cfg(any(feature = "cluster-sync", feature = "cluster-async"))]
@@ -122,6 +138,14 @@ pub mod cluster {
     pub use crate::cluster_async::{
         RedisClusterAsyncDataConn, RedisClusterAsyncDataSrc, RedisClusterAsyncError,
     };
+
+    #[cfg(feature = "cluster-sync")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "cluster-sync")))]
+    pub use crate::pubsub_sync::{RedisPubSubCluster, RedisPubSubClusterError};
+
+    #[cfg(feature = "cluster-async")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "cluster-async")))]
+    pub use crate::pubsub_async::{RedisPubSubClusterAsync, RedisPubSubClusterAsyncError};
 }
 
 /// This module provides components for processing Redis Pub/Sub messages.
@@ -165,28 +189,4 @@ pub mod pubsub {
         )))
     )]
     pub use crate::pubsub_async::{RedisPubSubMsgAsyncDataConn, RedisPubSubMsgAsyncDataSrc};
-
-    #[cfg(feature = "standalone-sync")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "standalone-sync")))]
-    pub use crate::pubsub_sync::{RedisPubSub, RedisPubSubError};
-
-    #[cfg(feature = "sentinel-sync")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "sentinel-sync")))]
-    pub use crate::pubsub_sync::{RedisPubSubSentinel, RedisPubSubSentinelError};
-
-    #[cfg(feature = "cluster-sync")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "cluster-sync")))]
-    pub use crate::pubsub_sync::{RedisPubSubCluster, RedisPubSubClusterError};
-
-    #[cfg(feature = "standalone-async")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "standalone-async")))]
-    pub use crate::pubsub_async::{RedisPubSubAsync, RedisPubSubAsyncError};
-
-    #[cfg(feature = "sentinel-async")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "sentinel-async")))]
-    pub use crate::pubsub_async::{RedisPubSubSentinelAsync, RedisPubSubSentinelAsyncError};
-
-    #[cfg(feature = "cluster-async")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "cluster-async")))]
-    pub use crate::pubsub_async::{RedisPubSubClusterAsync, RedisPubSubClusterAsyncError};
 }
