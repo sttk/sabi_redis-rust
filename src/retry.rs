@@ -2,7 +2,7 @@
 // This program is free software under MIT License.
 // See the file LICENSE in this distribution for more details.
 
-use tokio::time;
+use std::{thread, time};
 
 pub(crate) struct Retry {
     max_count: u32,
@@ -34,7 +34,7 @@ impl Retry {
         self.current_count = 0;
     }
 
-    pub(crate) async fn wait_with_backoff_async(&mut self) -> bool {
+    pub(crate) fn wait_with_backoff(&mut self) -> bool {
         if self.current_count >= self.max_count {
             return false;
         }
@@ -43,7 +43,7 @@ impl Retry {
             .init_delay_ms
             .saturating_mul(2u64.saturating_pow(self.current_count))
             .min(self.max_delay_ms);
-        time::sleep(time::Duration::from_millis(wait_ms)).await;
+        thread::sleep(time::Duration::from_millis(wait_ms));
         self.current_count = count;
         true
     }
@@ -52,7 +52,7 @@ impl Retry {
 #[cfg(test)]
 mod unit_tests {
     use super::*;
-    use tokio::time::Instant;
+    use std::time::Instant;
 
     #[test]
     fn test_new() {
@@ -72,46 +72,46 @@ mod unit_tests {
         assert_eq!(retry.current_count, 0);
     }
 
-    #[tokio::test]
-    async fn test_wait_with_backoff() {
+    #[test]
+    fn test_wait_with_backoff() {
         let mut retry = Retry::with_params(6, 100, 1000);
 
         let tm = Instant::now();
-        assert!(retry.wait_with_backoff_async().await);
+        assert!(retry.wait_with_backoff());
         let d = tm.elapsed().as_millis();
         assert!(d > 90);
         assert!(d < 200);
 
         let tm = Instant::now();
-        assert!(retry.wait_with_backoff_async().await);
+        assert!(retry.wait_with_backoff());
         let d = tm.elapsed().as_millis();
         assert!(d > 190);
         assert!(d < 300);
 
         let tm = Instant::now();
-        assert!(retry.wait_with_backoff_async().await);
+        assert!(retry.wait_with_backoff());
         let d = tm.elapsed().as_millis();
         assert!(d > 390);
         assert!(d < 500);
 
         let tm = Instant::now();
-        assert!(retry.wait_with_backoff_async().await);
+        assert!(retry.wait_with_backoff());
         let d = tm.elapsed().as_millis();
         assert!(d > 790);
         assert!(d < 900);
 
         let tm = Instant::now();
-        assert!(retry.wait_with_backoff_async().await);
+        assert!(retry.wait_with_backoff());
         let d = tm.elapsed().as_millis();
         assert!(d > 990);
         assert!(d < 1100);
 
         let tm = Instant::now();
-        assert!(retry.wait_with_backoff_async().await);
+        assert!(retry.wait_with_backoff());
         let d = tm.elapsed().as_millis();
         assert!(d > 990);
         assert!(d < 1100);
 
-        assert!(!retry.wait_with_backoff_async().await);
+        assert!(!retry.wait_with_backoff());
     }
 }
