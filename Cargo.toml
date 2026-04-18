@@ -25,17 +25,18 @@ futures = "0.3"
 [dev-dependencies]
 override_macro = "0.1"
 inventory = "0.3"
+url = "2"
 
 [features]
-default = ["standalone-sync"]
+default = ["standalone"]
 
-standalone-sync = ["dep:r2d2", "redis/r2d2"]
+standalone = ["dep:r2d2", "redis/r2d2"]
 standalone-async = ["dep:deadpool-redis", "redis/tokio-comp", "sabi-rust/tokio", "dep:tokio", "tokio/full"]
 
-sentinel-sync = ["dep:r2d2", "redis/r2d2", "redis/sentinel"]
+sentinel = ["dep:r2d2", "redis/r2d2", "redis/sentinel"]
 sentinel-async = ["deadpool/managed", "deadpool-redis/sentinel", "redis/tokio-comp", "redis/sentinel", "redis/aio", "sabi-rust/tokio", "dep:tokio", "tokio/full"]
 
-cluster-sync = ["dep:r2d2", "redis/r2d2", "redis/cluster"]
+cluster = ["dep:r2d2", "redis/r2d2", "redis/cluster"]
 cluster-async = ["deadpool/managed", "deadpool-redis/cluster", "redis/tokio-comp", "redis/cluster", "redis/aio", "sabi-rust/tokio", "dep:tokio", "tokio/full"]
 
 [package.metadata.docs.rs]

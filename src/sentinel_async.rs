@@ -8,50 +8,27 @@ use sabi::tokio::{AsyncGroup, DataConn, DataSrc};
 
 use std::future::Future;
 use std::{mem, pin};
+use tokio::time;
 
-/// The error type for asynchronous Redis Sentinel operations.
 #[derive(Debug)]
-pub enum RedisSentinelAsyncError {
-    /// Indicates that the Redis Sentinel data source has not been set up yet.
-    NotSetupYet,
-    /// Indicates that the Redis Sentinel data source has already been set up.
+pub enum RedisSentinelErrorAsync {
     AlreadySetup,
-    /// Indicates a failure to build a Redis connection pool.
-    FailToBuildPool,
-    /// Indicates a failure to get a connection from the pool.
+    NotSetupYet,
+    FailToConnect { config: Config },
+    FailToBuildPool { config: Config },
     FailToGetConnectionFromPool,
 }
 
 type BoxedFuture = pin::Pin<Box<dyn Future<Output = errs::Result<()>> + Send + 'static>>;
 
-/// A data connection for Redis Sentinel, providing asynchronous operations.
-///
-/// This structure holds an asynchronous connection pool for a Redis Sentinel-managed
-/// setup and allows for adding hooks (pre-commit, post-commit, and force-back)
-/// that are executed during the lifecycle of an asynchronous data operation managed by `sabi`.
-///
-/// # Examples
-/// ```
-/// use sabi_redis::sentinel::RedisSentinelAsyncDataConn;
-/// use redis::AsyncCommands;
-/// use sabi::tokio::DataAcc;
-///
-/// trait MyDataAcc: DataAcc {
-///     async fn set_value(&mut self, key: &str, val: &str) -> errs::Result<()> {
-///         let data_conn = self.get_data_conn_async::<RedisSentinelAsyncDataConn>("redis").await?;
-///         let conn = data_conn.get_connection();
-///         conn.set(key, val).await.map_err(|e| errs::Err::with_source("fail", e))
-///     }
-/// }
-/// ```
-pub struct RedisSentinelAsyncDataConn {
+pub struct RedisSentinelDataConnAsync {
     conn: Connection,
     pre_commit_vec: Vec<BoxedFuture>,
     post_commit_vec: Vec<BoxedFuture>,
     force_back_vec: Vec<BoxedFuture>,
 }
 
-impl RedisSentinelAsyncDataConn {
+impl RedisSentinelDataConnAsync {
     fn new(conn: Connection) -> Self {
         Self {
             conn,
@@ -61,18 +38,10 @@ impl RedisSentinelAsyncDataConn {
         }
     }
 
-    /// Gets an asynchronous Sentinel-managed connection.
-    ///
-    /// # Returns
-    /// Returns a mutable reference to a `MultiplexedConnection`.
     pub fn get_connection(&mut self) -> &mut MultiplexedConnection {
         &mut self.conn
     }
 
-    /// Adds an asynchronous function to be executed before a commit occurs.
-    ///
-    /// # Arguments
-    /// * `f` - An async closure or function that takes a `MultiplexedConnection` and returns a `Future`.
     pub async fn add_pre_commit_async<F, Fut>(&mut self, mut f: F)
     where
         F: FnMut(MultiplexedConnection) -> Fut,
@@ -82,10 +51,6 @@ impl RedisSentinelAsyncDataConn {
         self.pre_commit_vec.push(Box::pin(fut))
     }
 
-    /// Adds an asynchronous function to be executed after a successful commit.
-    ///
-    /// # Arguments
-    /// * `f` - An async closure or function that takes a `MultiplexedConnection` and returns a `Future`.
     pub async fn add_post_commit_async<F, Fut>(&mut self, mut f: F)
     where
         F: FnMut(MultiplexedConnection) -> Fut,
@@ -95,10 +60,6 @@ impl RedisSentinelAsyncDataConn {
         self.post_commit_vec.push(Box::pin(fut))
     }
 
-    /// Adds an asynchronous function to be executed when a rollback occurs.
-    ///
-    /// # Arguments
-    /// * `f` - An async closure or function that takes a `MultiplexedConnection` and returns a `Future`.
     pub async fn add_force_back_async<F, Fut>(&mut self, mut f: F)
     where
         F: FnMut(MultiplexedConnection) -> Fut,
@@ -109,15 +70,12 @@ impl RedisSentinelAsyncDataConn {
     }
 }
 
-impl DataConn for RedisSentinelAsyncDataConn {
-    async fn pre_commit_async(&mut self, ag: &mut AsyncGroup) -> errs::Result<()> {
+impl DataConn for RedisSentinelDataConnAsync {
+    async fn pre_commit_async(&mut self, _ag: &mut AsyncGroup) -> errs::Result<()> {
         let vec = mem::take(&mut self.pre_commit_vec);
-        ag.add(async move {
-            for fut in vec.into_iter() {
-                fut.await?;
-            }
-            Ok(())
-        });
+        for fut in vec.into_iter() {
+            fut.await?;
+        }
         Ok(())
     }
 
@@ -125,14 +83,13 @@ impl DataConn for RedisSentinelAsyncDataConn {
         Ok(())
     }
 
-    async fn post_commit_async(&mut self, ag: &mut AsyncGroup) {
+    async fn post_commit_async(&mut self, _ag: &mut AsyncGroup) {
         let vec = mem::take(&mut self.post_commit_vec);
-        ag.add(async move {
-            for fut in vec.into_iter() {
-                fut.await?;
-            }
-            Ok(())
-        });
+        for fut in vec.into_iter() {
+            // The error are not exposed externally, but a notification is triggered when
+            // errs::Err is created.
+            let _ = fut.await;
+        }
     }
 
     fn should_force_back(&self) -> bool {
@@ -141,14 +98,13 @@ impl DataConn for RedisSentinelAsyncDataConn {
 
     async fn rollback_async(&mut self, _ag: &mut AsyncGroup) {}
 
-    async fn force_back_async(&mut self, ag: &mut AsyncGroup) {
+    async fn force_back_async(&mut self, _ag: &mut AsyncGroup) {
         let vec = mem::take(&mut self.force_back_vec);
-        ag.add(async move {
-            for fut in vec.into_iter() {
-                fut.await?;
-            }
-            Ok(())
-        });
+        for fut in vec.into_iter().rev() {
+            // The error are not exposed externally, but a notification is triggered when
+            // errs::Err is created.
+            let _ = fut.await;
+        }
     }
 
     fn close(&mut self) {
@@ -158,26 +114,7 @@ impl DataConn for RedisSentinelAsyncDataConn {
     }
 }
 
-/// A data source for Redis Sentinel, used to initialize and provide `RedisSentinelAsyncDataConn` instances.
-///
-/// This struct implements the `DataSrc` trait from the `sabi` library for asynchronous operations.
-///
-/// # Examples
-/// ```
-/// use sabi_redis::sentinel::RedisSentinelAsyncDataSrc;
-/// use sabi::tokio::DataHub;
-///
-/// let mut data = DataHub::new();
-/// data.uses("redis", RedisSentinelAsyncDataSrc::new(
-///     vec![
-///         "redis://127.0.0.1:26479",
-///         "redis://127.0.0.1:26480",
-///         "redis://127.0.0.1:26481",
-///     ],
-///     "mymaster",
-/// ));
-/// ```
-pub struct RedisSentinelAsyncDataSrc {
+pub struct RedisSentinelDataSrcAsync {
     pool: Option<RedisPool>,
 }
 
@@ -186,25 +123,17 @@ enum RedisPool {
     Config(Box<Config>),
 }
 
-impl RedisSentinelAsyncDataSrc {
-    /// Creates a new `RedisSentinelAsyncDataSrc` with Sentinel addresses and a master name.
-    ///
-    /// # Arguments
-    /// * `addrs` - An iterator of Sentinel addresses.
-    /// * `master_name` - The name of the Redis master.
-    ///
-    /// # Returns
-    /// Returns a new instance of `RedisSentinelAsyncDataSrc`.
-    pub fn new<I, S>(addrs: I, master_name: S) -> Self
+impl RedisSentinelDataSrcAsync {
+    pub fn new<I, S>(addrs: I, master_name: S, server_type: SentinelServerType) -> Self
     where
-        I: IntoIterator<Item = S>,
+        I: IntoIterator<Item: AsRef<str>>,
         S: AsRef<str>,
     {
         let urls = addrs.into_iter().map(|s| s.as_ref().to_string()).collect();
         Self {
             pool: Some(RedisPool::Config(Box::new(Config {
                 urls: Some(urls),
-                server_type: SentinelServerType::Master,
+                server_type,
                 master_name: master_name.as_ref().to_string(),
                 connections: None,
                 node_connection_info: None,
@@ -213,25 +142,21 @@ impl RedisSentinelAsyncDataSrc {
         }
     }
 
-    /// Creates a new `RedisSentinelAsyncDataSrc` with Sentinel addresses, a master name, and a custom pool configuration.
-    ///
-    /// # Arguments
-    /// * `addrs` - An iterator of Sentinel addresses.
-    /// * `master_name` - The name of the Redis master.
-    /// * `pool_config` - A `PoolConfig` for the underlying connection pool.
-    ///
-    /// # Returns
-    /// Returns a new instance of `RedisSentinelAsyncDataSrc`.
-    pub fn with_pool_config<I, S>(addrs: I, master_name: S, pool_config: PoolConfig) -> Self
+    pub fn with_pool_config<I, S>(
+        addrs: I,
+        master_name: S,
+        server_type: SentinelServerType,
+        pool_config: PoolConfig,
+    ) -> Self
     where
-        I: IntoIterator<Item = S>,
+        I: IntoIterator<Item: AsRef<str>>,
         S: AsRef<str>,
     {
         let urls = addrs.into_iter().map(|s| s.as_ref().to_string()).collect();
         Self {
             pool: Some(RedisPool::Config(Box::new(Config {
                 urls: Some(urls),
-                server_type: SentinelServerType::Master,
+                server_type,
                 master_name: master_name.as_ref().to_string(),
                 connections: None,
                 node_connection_info: None,
@@ -240,536 +165,1252 @@ impl RedisSentinelAsyncDataSrc {
         }
     }
 
-    /// Creates a new `RedisSentinelAsyncDataSrc` with a complete `Config`.
-    ///
-    /// # Arguments
-    /// * `cfg` - A `deadpool_redis::sentinel::Config` object.
-    ///
-    /// # Returns
-    /// Returns a new instance of `RedisSentinelAsyncDataSrc`.
-    pub fn with_config(cfg: Config) -> Self {
+    pub fn with_config(config: Config) -> Self {
         Self {
-            pool: Some(RedisPool::Config(Box::new(cfg))),
+            pool: Some(RedisPool::Config(Box::new(config))),
         }
     }
 }
 
-impl DataSrc<RedisSentinelAsyncDataConn> for RedisSentinelAsyncDataSrc {
+impl DataSrc<RedisSentinelDataConnAsync> for RedisSentinelDataSrcAsync {
     async fn setup_async(&mut self, _ag: &mut AsyncGroup) -> errs::Result<()> {
         let pool_opt = mem::take(&mut self.pool);
-        let pool = pool_opt.ok_or_else(|| errs::Err::new(RedisSentinelAsyncError::AlreadySetup))?;
+        let pool = pool_opt.ok_or_else(|| errs::Err::new(RedisSentinelErrorAsync::AlreadySetup))?;
         match pool {
-            RedisPool::Config(cfg) => {
-                let pool = cfg.create_pool(Some(Runtime::Tokio1)).map_err(|e| {
-                    errs::Err::with_source(RedisSentinelAsyncError::FailToBuildPool, e)
+            RedisPool::Config(config) => {
+                let pool = config.create_pool(Some(Runtime::Tokio1)).map_err(|e| {
+                    errs::Err::with_source(
+                        RedisSentinelErrorAsync::FailToBuildPool {
+                            config: *config.clone(),
+                        },
+                        e,
+                    )
+                })?;
+
+                let mut timeouts = config.pool.map(|p| p.timeouts).unwrap_or_default();
+                timeouts
+                    .wait
+                    .get_or_insert(time::Duration::from_millis(100));
+                timeouts
+                    .create
+                    .get_or_insert(time::Duration::from_millis(100));
+
+                pool.timeout_get(&timeouts).await.map_err(|e| {
+                    errs::Err::with_source(
+                        RedisSentinelErrorAsync::FailToConnect { config: *config },
+                        e,
+                    )
                 })?;
                 self.pool = Some(RedisPool::Object(pool));
                 Ok(())
             }
-            _ => Err(errs::Err::new(RedisSentinelAsyncError::AlreadySetup)),
+            _ => Err(errs::Err::new(RedisSentinelErrorAsync::AlreadySetup)),
         }
     }
 
     fn close(&mut self) {
         if let Some(RedisPool::Object(pool)) = self.pool.as_mut() {
-            pool.close()
+            pool.close();
         }
     }
 
-    async fn create_data_conn_async(&mut self) -> errs::Result<Box<RedisSentinelAsyncDataConn>> {
+    async fn create_data_conn_async(&mut self) -> errs::Result<Box<RedisSentinelDataConnAsync>> {
         let pool = self
             .pool
             .as_mut()
-            .ok_or_else(|| errs::Err::new(RedisSentinelAsyncError::NotSetupYet))?;
+            .ok_or_else(|| errs::Err::new(RedisSentinelErrorAsync::NotSetupYet))?;
         match pool {
             RedisPool::Object(pool) => match pool.get().await {
-                Ok(conn) => Ok(Box::new(RedisSentinelAsyncDataConn::new(conn))),
+                Ok(conn) => Ok(Box::new(RedisSentinelDataConnAsync::new(conn))),
                 Err(e) => Err(errs::Err::with_source(
-                    RedisSentinelAsyncError::FailToGetConnectionFromPool,
+                    RedisSentinelErrorAsync::FailToGetConnectionFromPool,
                     e,
                 )),
             },
-            _ => Err(errs::Err::new(RedisSentinelAsyncError::NotSetupYet)),
+            _ => Err(errs::Err::new(RedisSentinelErrorAsync::NotSetupYet)),
         }
     }
 }
 
 #[cfg(test)]
-mod unit_tests {
+mod unit_tests_of_data_src {
     use super::*;
-    use deadpool_redis::Timeouts;
-    use override_macro::{overridable, override_with};
-    use redis::AsyncCommands;
-    use sabi::tokio::{logic, DataAcc, DataHub};
-    use std::time;
 
-    #[derive(Debug)]
-    enum SampleSentinelAsyncError {
-        FailToGetValue,
-        FailToSetValue,
-        FailToDelValue,
+    mod test_new {
+        use super::*;
+        use url::Url;
+
+        #[tokio::test]
+        async fn addrs_are_strs_and_ok() {
+            let mut ds = RedisSentinelDataSrcAsync::new(
+                &[
+                    "redis://127.0.0.1:26479",
+                    "redis://127.0.0.1:26480",
+                    "redis://127.0.0.1:26481",
+                ],
+                "mymaster",
+                SentinelServerType::Master,
+            );
+            let mut ag = AsyncGroup::new();
+            if let Err(err) = ds.setup_async(&mut ag).await {
+                panic!("{err:?}");
+            }
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+            ds.close();
+        }
+
+        #[tokio::test]
+        async fn addrs_are_strs_and_fail() {
+            let mut ds = RedisSentinelDataSrcAsync::new(
+                &[
+                    "redis://xxxx:26479",
+                    "redis://xxxx:26480",
+                    "redis://xxxx:26481",
+                ],
+                "mymaster",
+                SentinelServerType::Master,
+            );
+            let mut ag = AsyncGroup::new();
+            let Err(err) = ds.setup_async(&mut ag).await else {
+                panic!();
+            };
+            let Ok(RedisSentinelErrorAsync::FailToConnect { config }) =
+                err.reason::<RedisSentinelErrorAsync>()
+            else {
+                panic!();
+            };
+            assert_eq!(format!("{:?}", config), "Config { urls: Some([\"redis://xxxx:26479\", \"redis://xxxx:26480\", \"redis://xxxx:26481\"]), server_type: Master, master_name: \"mymaster\", connections: None, node_connection_info: None, pool: None }");
+            assert_eq!(
+                format!("{:?}", err.source().unwrap()),
+                "Backend(failed to lookup address information: nodename nor servname provided, or not known)",
+            );
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+            ds.close();
+        }
+
+        #[tokio::test]
+        async fn addrs_are_strings_and_ok() {
+            let mut ds = RedisSentinelDataSrcAsync::new(
+                &[
+                    "redis://127.0.0.1:26479".to_string(),
+                    "redis://127.0.0.1:26480".to_string(),
+                    "redis://127.0.0.1:26481".to_string(),
+                ],
+                "mymaster",
+                SentinelServerType::Master,
+            );
+            let mut ag = AsyncGroup::new();
+            if let Err(err) = ds.setup_async(&mut ag).await {
+                panic!("{err:?}");
+            }
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+            ds.close();
+        }
+
+        #[tokio::test]
+        async fn addrs_are_strings_and_fail() {
+            let mut ds = RedisSentinelDataSrcAsync::new(
+                &["xxxx".to_string(), "yyyy".to_string(), "zzzz".to_string()],
+                "mymaster",
+                SentinelServerType::Master,
+            );
+            let mut ag = AsyncGroup::new();
+            let Err(err) = ds.setup_async(&mut ag).await else {
+                panic!();
+            };
+            let Ok(RedisSentinelErrorAsync::FailToBuildPool { config }) =
+                err.reason::<RedisSentinelErrorAsync>()
+            else {
+                panic!();
+            };
+            assert_eq!(format!("{:?}", config), "Config { urls: Some([\"xxxx\", \"yyyy\", \"zzzz\"]), server_type: Master, master_name: \"mymaster\", connections: None, node_connection_info: None, pool: None }");
+            assert_eq!(
+                format!("{:?}", err.source().unwrap()),
+                "Config(Redis(Redis URL did not parse - InvalidClientConfig))",
+            );
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+            ds.close();
+        }
+
+        #[tokio::test]
+        async fn addrs_are_urls_and_ok() {
+            let Ok(url0) = Url::parse("redis://127.0.0.1:26479/0") else {
+                panic!("bad url");
+            };
+            let Ok(url1) = Url::parse("redis://127.0.0.1:26480/0") else {
+                panic!("bad url");
+            };
+            let Ok(url2) = Url::parse("redis://127.0.0.1:26481/0") else {
+                panic!("bad url");
+            };
+            let mut ds = RedisSentinelDataSrcAsync::new(
+                &[url0, url1, url2],
+                "mymaster",
+                SentinelServerType::Master,
+            );
+            let mut ag = AsyncGroup::new();
+            if let Err(err) = ds.setup_async(&mut ag).await {
+                panic!("{err:?}");
+            }
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+            ds.close();
+        }
+
+        #[tokio::test]
+        async fn addrs_are_urls_and_fail() {
+            let Ok(url0) = Url::parse("redis://") else {
+                panic!("bad url");
+            };
+            let Ok(url1) = Url::parse("redis://") else {
+                panic!("bad url");
+            };
+            let Ok(url2) = Url::parse("redis://") else {
+                panic!("bad url");
+            };
+            let mut ds = RedisSentinelDataSrcAsync::new(
+                &[url0, url1, url2],
+                "mymaster",
+                SentinelServerType::Master,
+            );
+            let mut ag = AsyncGroup::new();
+            let Err(err) = ds.setup_async(&mut ag).await else {
+                panic!();
+            };
+            let Ok(RedisSentinelErrorAsync::FailToBuildPool { config }) =
+                err.reason::<RedisSentinelErrorAsync>()
+            else {
+                panic!();
+            };
+            assert_eq!(format!("{:?}", config), "Config { urls: Some([\"redis://\", \"redis://\", \"redis://\"]), server_type: Master, master_name: \"mymaster\", connections: None, node_connection_info: None, pool: None }");
+            assert_eq!(
+                format!("{:?}", err.source().unwrap()),
+                "Config(Redis(Missing hostname - InvalidClientConfig))",
+            );
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+            ds.close();
+        }
     }
 
-    #[overridable]
-    trait RedisSentinelAsyncSampleDataAcc: DataAcc {
-        async fn get_sample_key_async(&mut self) -> errs::Result<Option<String>> {
-            let data_conn = self
-                .get_data_conn_async::<RedisSentinelAsyncDataConn>("redis")
-                .await?;
-            let conn = data_conn.get_connection();
-            conn.get("sample_sentinel_async")
-                .await
-                .map_err(|e| errs::Err::with_source(SampleSentinelAsyncError::FailToGetValue, e))
-        }
-        async fn set_sample_key_async(&mut self, val: &str) -> errs::Result<()> {
-            let data_conn = self
-                .get_data_conn_async::<RedisSentinelAsyncDataConn>("redis")
-                .await?;
-            let conn = data_conn.get_connection();
-            conn.set("sample_sentinel_async", val)
-                .await
-                .map_err(|e| errs::Err::with_source(SampleSentinelAsyncError::FailToSetValue, e))
-        }
-        async fn del_sample_key_async(&mut self) -> errs::Result<()> {
-            let data_conn = self
-                .get_data_conn_async::<RedisSentinelAsyncDataConn>("redis")
-                .await?;
-            let conn = data_conn.get_connection();
-            conn.del("sample_sentinel_async")
-                .await
-                .map_err(|e| errs::Err::with_source(SampleSentinelAsyncError::FailToDelValue, e))
+    mod test_with_pool_config {
+        use super::*;
+        use deadpool_redis::Timeouts;
+        use tokio::time;
+        use url::Url;
+
+        #[tokio::test]
+        async fn addrs_are_strs_and_ok() {
+            let pool_cfg = PoolConfig {
+                max_size: 10,
+                timeouts: Timeouts {
+                    wait: Some(time::Duration::from_secs(10)),
+                    create: Some(time::Duration::from_secs(11)),
+                    recycle: Some(time::Duration::from_secs(12)),
+                },
+                ..Default::default()
+            };
+            let mut ds = RedisSentinelDataSrcAsync::with_pool_config(
+                &[
+                    "redis://127.0.0.1:26479",
+                    "redis://127.0.0.1:26480",
+                    "redis://127.0.0.1:26481",
+                ],
+                "mymaster",
+                SentinelServerType::Master,
+                pool_cfg,
+            );
+            let mut ag = AsyncGroup::new();
+            if let Err(err) = ds.setup_async(&mut ag).await {
+                panic!("{err:?}");
+            }
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+            ds.close();
         }
 
-        async fn set_sample_key_with_force_back_async(&mut self, val: &str) -> errs::Result<()> {
-            let data_conn = self
-                .get_data_conn_async::<RedisSentinelAsyncDataConn>("redis")
-                .await?;
+        #[tokio::test]
+        async fn addrs_are_strs_and_fail() {
+            let pool_cfg = PoolConfig {
+                max_size: 10,
+                timeouts: Timeouts {
+                    wait: Some(time::Duration::from_secs(10)),
+                    create: Some(time::Duration::from_secs(11)),
+                    recycle: Some(time::Duration::from_secs(12)),
+                },
+                ..Default::default()
+            };
+            let mut ds = RedisSentinelDataSrcAsync::with_pool_config(
+                &[
+                    "redis://xxxx:26479",
+                    "redis://xxxx:26480",
+                    "redis://xxxx:26481",
+                ],
+                "mymaster",
+                SentinelServerType::Master,
+                pool_cfg,
+            );
+            let mut ag = AsyncGroup::new();
+            let Err(err) = ds.setup_async(&mut ag).await else {
+                panic!();
+            };
+            let Ok(RedisSentinelErrorAsync::FailToConnect { config }) =
+                err.reason::<RedisSentinelErrorAsync>()
+            else {
+                panic!();
+            };
+            assert_eq!(format!("{:?}", config), "Config { urls: Some([\"redis://xxxx:26479\", \"redis://xxxx:26480\", \"redis://xxxx:26481\"]), server_type: Master, master_name: \"mymaster\", connections: None, node_connection_info: None, pool: Some(PoolConfig { max_size: 10, timeouts: Timeouts { wait: Some(10s), create: Some(11s), recycle: Some(12s) }, queue_mode: Fifo }) }");
+            assert_eq!(
+                format!("{:?}", err.source().unwrap()),
+                "Backend(failed to lookup address information: nodename nor servname provided, or not known)",
+            );
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+            ds.close();
+        }
+
+        #[tokio::test]
+        async fn addrs_are_strings_and_ok() {
+            let pool_cfg = PoolConfig {
+                max_size: 10,
+                timeouts: Timeouts {
+                    wait: Some(time::Duration::from_secs(10)),
+                    create: Some(time::Duration::from_secs(11)),
+                    recycle: Some(time::Duration::from_secs(12)),
+                },
+                ..Default::default()
+            };
+            let mut ds = RedisSentinelDataSrcAsync::with_pool_config(
+                &[
+                    "redis://127.0.0.1:26479".to_string(),
+                    "redis://127.0.0.1:26480".to_string(),
+                    "redis://127.0.0.1:26481".to_string(),
+                ],
+                "mymaster",
+                SentinelServerType::Master,
+                pool_cfg,
+            );
+            let mut ag = AsyncGroup::new();
+            if let Err(err) = ds.setup_async(&mut ag).await {
+                panic!("{err:?}");
+            }
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+            ds.close();
+        }
+
+        #[tokio::test]
+        async fn addrs_are_strings_and_fail() {
+            let pool_cfg = PoolConfig {
+                max_size: 10,
+                timeouts: Timeouts {
+                    wait: Some(time::Duration::from_secs(10)),
+                    create: Some(time::Duration::from_secs(11)),
+                    recycle: Some(time::Duration::from_secs(12)),
+                },
+                ..Default::default()
+            };
+            let mut ds = RedisSentinelDataSrcAsync::with_pool_config(
+                &["xxxx".to_string(), "yyyy".to_string(), "zzzz".to_string()],
+                "mymaster",
+                SentinelServerType::Master,
+                pool_cfg,
+            );
+            let mut ag = AsyncGroup::new();
+            let Err(err) = ds.setup_async(&mut ag).await else {
+                panic!();
+            };
+            let Ok(RedisSentinelErrorAsync::FailToBuildPool { config }) =
+                err.reason::<RedisSentinelErrorAsync>()
+            else {
+                panic!();
+            };
+            assert_eq!(format!("{:?}", config), "Config { urls: Some([\"xxxx\", \"yyyy\", \"zzzz\"]), server_type: Master, master_name: \"mymaster\", connections: None, node_connection_info: None, pool: Some(PoolConfig { max_size: 10, timeouts: Timeouts { wait: Some(10s), create: Some(11s), recycle: Some(12s) }, queue_mode: Fifo }) }");
+            assert_eq!(
+                format!("{:?}", err.source().unwrap()),
+                "Config(Redis(Redis URL did not parse - InvalidClientConfig))",
+            );
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+            ds.close();
+        }
+
+        #[tokio::test]
+        async fn addrs_are_urls_and_ok() {
+            let pool_cfg = PoolConfig {
+                max_size: 10,
+                timeouts: Timeouts {
+                    wait: Some(time::Duration::from_secs(10)),
+                    create: Some(time::Duration::from_secs(11)),
+                    recycle: Some(time::Duration::from_secs(12)),
+                },
+                ..Default::default()
+            };
+            let Ok(url0) = Url::parse("redis://127.0.0.1:26479/0") else {
+                panic!("bad url");
+            };
+            let Ok(url1) = Url::parse("redis://127.0.0.1:26480/0") else {
+                panic!("bad url");
+            };
+            let Ok(url2) = Url::parse("redis://127.0.0.1:26481/0") else {
+                panic!("bad url");
+            };
+            let mut ds = RedisSentinelDataSrcAsync::with_pool_config(
+                &[url0, url1, url2],
+                "mymaster",
+                SentinelServerType::Master,
+                pool_cfg,
+            );
+            let mut ag = AsyncGroup::new();
+            if let Err(err) = ds.setup_async(&mut ag).await {
+                panic!("{err:?}");
+            }
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+            ds.close();
+        }
+
+        #[tokio::test]
+        async fn addrs_are_urls_and_fail() {
+            let pool_cfg = PoolConfig {
+                max_size: 10,
+                timeouts: Timeouts {
+                    wait: Some(time::Duration::from_secs(10)),
+                    create: Some(time::Duration::from_secs(11)),
+                    recycle: Some(time::Duration::from_secs(12)),
+                },
+                ..Default::default()
+            };
+            let Ok(url0) = Url::parse("redis://") else {
+                panic!("bad url");
+            };
+            let Ok(url1) = Url::parse("redis://") else {
+                panic!("bad url");
+            };
+            let Ok(url2) = Url::parse("redis://") else {
+                panic!("bad url");
+            };
+            let mut ds = RedisSentinelDataSrcAsync::with_pool_config(
+                &[url0, url1, url2],
+                "mymaster",
+                SentinelServerType::Master,
+                pool_cfg,
+            );
+            let mut ag = AsyncGroup::new();
+            let Err(err) = ds.setup_async(&mut ag).await else {
+                panic!();
+            };
+            let Ok(RedisSentinelErrorAsync::FailToBuildPool { config }) =
+                err.reason::<RedisSentinelErrorAsync>()
+            else {
+                panic!();
+            };
+            assert_eq!(format!("{:?}", config), "Config { urls: Some([\"redis://\", \"redis://\", \"redis://\"]), server_type: Master, master_name: \"mymaster\", connections: None, node_connection_info: None, pool: Some(PoolConfig { max_size: 10, timeouts: Timeouts { wait: Some(10s), create: Some(11s), recycle: Some(12s) }, queue_mode: Fifo }) }");
+            assert_eq!(
+                format!("{:?}", err.source().unwrap()),
+                "Config(Redis(Missing hostname - InvalidClientConfig))",
+            );
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+            ds.close();
+        }
+    }
+
+    mod test_with_config {
+        use super::*;
+        use deadpool_redis::Timeouts;
+        use tokio::time;
+
+        #[tokio::test]
+        async fn ok() {
+            let pool_cfg = PoolConfig {
+                max_size: 10,
+                timeouts: Timeouts {
+                    wait: Some(time::Duration::from_secs(10)),
+                    create: Some(time::Duration::from_secs(11)),
+                    recycle: Some(time::Duration::from_secs(12)),
+                },
+                ..Default::default()
+            };
+            let config = Config {
+                urls: Some(vec![
+                    "redis://127.0.0.1:26479".to_string(),
+                    "redis://127.0.0.1:26480".to_string(),
+                    "redis://127.0.0.1:26481".to_string(),
+                ]),
+                server_type: SentinelServerType::Master,
+                master_name: "mymaster".to_string(),
+                connections: None,
+                node_connection_info: None,
+                pool: Some(pool_cfg),
+            };
+            let mut ds = RedisSentinelDataSrcAsync::with_config(config);
+            let mut ag = AsyncGroup::new();
+            if let Err(err) = ds.setup_async(&mut ag).await {
+                panic!("{err:?}");
+            }
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+            ds.close();
+        }
+
+        #[tokio::test]
+        async fn fail() {
+            let pool_cfg = PoolConfig {
+                max_size: 10,
+                timeouts: Timeouts {
+                    wait: Some(time::Duration::from_secs(10)),
+                    create: Some(time::Duration::from_secs(11)),
+                    recycle: Some(time::Duration::from_secs(12)),
+                },
+                ..Default::default()
+            };
+            let config = Config {
+                urls: Some(vec![
+                    "xxxx".to_string(),
+                    "xxxx".to_string(),
+                    "xxxx".to_string(),
+                ]),
+                server_type: SentinelServerType::Master,
+                master_name: "mymaster".to_string(),
+                connections: None,
+                node_connection_info: None,
+                pool: Some(pool_cfg),
+            };
+            let mut ds = RedisSentinelDataSrcAsync::with_config(config);
+            let mut ag = AsyncGroup::new();
+            let Err(err) = ds.setup_async(&mut ag).await else {
+                panic!();
+            };
+            let Ok(RedisSentinelErrorAsync::FailToBuildPool { config }) =
+                err.reason::<RedisSentinelErrorAsync>()
+            else {
+                panic!();
+            };
+            assert_eq!(format!("{:?}", config), "Config { urls: Some([\"xxxx\", \"xxxx\", \"xxxx\"]), server_type: Master, master_name: \"mymaster\", connections: None, node_connection_info: None, pool: Some(PoolConfig { max_size: 10, timeouts: Timeouts { wait: Some(10s), create: Some(11s), recycle: Some(12s) }, queue_mode: Fifo }) }");
+            assert_eq!(
+                format!("{:?}", err.source().unwrap()),
+                "Config(Redis(Redis URL did not parse - InvalidClientConfig))",
+            );
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+            ds.close();
+        }
+    }
+
+    mod test_create_data_conn {
+        use super::*;
+        use redis::AsyncTypedCommands;
+
+        #[tokio::test]
+        async fn ok() {
+            let mut ds = RedisSentinelDataSrcAsync::new(
+                &[
+                    "redis://127.0.0.1:26479",
+                    "redis://127.0.0.1:26480",
+                    "redis://127.0.0.1:26481",
+                ],
+                "mymaster",
+                SentinelServerType::Master,
+            );
+            let mut ag = AsyncGroup::new();
+            if let Err(err) = ds.setup_async(&mut ag).await {
+                panic!("{err:?}");
+            }
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+
+            let Ok(mut data_conn) = ds.create_data_conn_async().await else {
+                panic!("fail to create data_conn");
+            };
+            let redis_conn = data_conn.get_connection();
+
+            redis_conn.set("test_create_data_conn", "1").await.unwrap();
+            let s = redis_conn.get("test_create_data_conn").await.unwrap();
+            redis_conn.del("test_create_data_conn").await.unwrap();
+            assert_eq!(s, Some("1".to_string()));
+
+            ds.close();
+        }
+
+        #[tokio::test]
+        async fn fail() {
+            let mut pcfg = PoolConfig::default();
+            pcfg.max_size = 1usize;
+            pcfg.timeouts.create = Some(time::Duration::from_millis(100));
+            pcfg.timeouts.wait = Some(time::Duration::from_millis(100));
+            let mut ds = RedisSentinelDataSrcAsync::with_pool_config(
+                &[
+                    "redis://127.0.0.1:26479",
+                    "redis://127.0.0.1:26480",
+                    "redis://127.0.0.1:26481",
+                ],
+                "mymaster",
+                SentinelServerType::Master,
+                pcfg,
+            );
+
+            let mut ag = AsyncGroup::new();
+            if let Err(err) = ds.setup_async(&mut ag).await {
+                panic!("{err:?}");
+            }
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+
+            let Ok(_data_conn) = ds.create_data_conn_async().await else {
+                panic!("fail to create data_conn");
+            };
+            let Err(err) = ds.create_data_conn_async().await else {
+                panic!("fail to create data_conn");
+            };
+            let Ok(RedisSentinelErrorAsync::FailToGetConnectionFromPool) =
+                err.reason::<RedisSentinelErrorAsync>()
+            else {
+                panic!();
+            };
+            assert_eq!(format!("{:?}", err.source().unwrap()), "Timeout(Wait)",);
+
+            ds.close();
+        }
+
+        #[tokio::test]
+        async fn not_setup_yet() {
+            let mut ds = RedisSentinelDataSrcAsync::new(
+                &[
+                    "redis://127.0.0.1:26479",
+                    "redis://127.0.0.1:26480",
+                    "redis://127.0.0.1:26481",
+                ],
+                "mymaster",
+                SentinelServerType::Master,
+            );
+            let Err(err) = ds.create_data_conn_async().await else {
+                panic!("fail to create data_conn");
+            };
+            let Ok(RedisSentinelErrorAsync::NotSetupYet) = err.reason::<RedisSentinelErrorAsync>()
+            else {
+                panic!();
+            };
+        }
+    }
+
+    mod test_setup {
+        use super::*;
+
+        #[tokio::test]
+        async fn fail_due_to_setup_twice() {
+            let mut ds = RedisSentinelDataSrcAsync::new(
+                &[
+                    "redis://127.0.0.1:26479",
+                    "redis://127.0.0.1:26480",
+                    "redis://127.0.0.1:26481",
+                ],
+                "mymaster",
+                SentinelServerType::Master,
+            );
+            let mut ag = AsyncGroup::new();
+            if let Err(err) = ds.setup_async(&mut ag).await {
+                panic!("{err:?}");
+            }
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+
+            let mut ag = AsyncGroup::new();
+            let Err(err) = ds.setup_async(&mut ag).await else {
+                panic!();
+            };
+            let Ok(RedisSentinelErrorAsync::AlreadySetup) = err.reason::<RedisSentinelErrorAsync>()
+            else {
+                panic!("{err:?}");
+            };
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+        }
+    }
+}
+
+#[cfg(test)]
+mod unit_tests_of_data_conn {
+    use super::*;
+
+    mod test_add_pre_commit {
+        use super::*;
+        use redis::AsyncTypedCommands;
+
+        #[tokio::test]
+        async fn ok() {
+            const KEY: &str = "test_add_pre_commit_async/sentinel";
+
+            let mut ds = RedisSentinelDataSrcAsync::new(
+                &[
+                    "redis://127.0.0.1:26479",
+                    "redis://127.0.0.1:26480",
+                    "redis://127.0.0.1:26481",
+                ],
+                "mymaster",
+                SentinelServerType::Master,
+            );
+            let mut ag = AsyncGroup::new();
+            if let Err(err) = ds.setup_async(&mut ag).await {
+                panic!("{err:?}");
+            }
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+
+            let Ok(mut data_conn) = ds.create_data_conn_async().await else {
+                panic!("fail to create data_conn");
+            };
+            assert!(data_conn.should_force_back());
+
+            data_conn
+                .add_pre_commit_async(async |mut redis_conn| {
+                    redis_conn.set(KEY, "1").await.unwrap();
+                    Ok(())
+                })
+                .await;
+
+            let mut ag = AsyncGroup::new();
+            data_conn.pre_commit_async(&mut ag).await.unwrap();
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+
             {
-                let conn = data_conn.get_connection();
-                conn.set::<&str, &str, ()>("sample_force_back_sentinel_async", val)
-                    .await
-                    .map_err(|e| {
-                        errs::Err::with_source(SampleSentinelAsyncError::FailToSetValue, e)
-                    })?;
+                let redis_conn = data_conn.get_connection();
+                let s = redis_conn.get(KEY).await.unwrap();
+                redis_conn.del(KEY).await.unwrap();
+                assert_eq!(s, Some("1".to_string()));
             }
 
-            data_conn
-                .add_force_back_async(async |mut conn| {
-                    conn.del("sample_force_back_sentinel_async")
-                        .await
-                        .map_err(|e| errs::Err::with_source("fail to force back", e))
-                })
-                .await;
+            let mut ag = AsyncGroup::new();
+            data_conn.commit_async(&mut ag).await.unwrap();
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
 
             {
-                let conn = data_conn.get_connection();
-                conn.set::<&str, &str, ()>("sample_force_back_sentinel_async_2", val)
-                    .await
-                    .map_err(|e| {
-                        errs::Err::with_source(SampleSentinelAsyncError::FailToSetValue, e)
-                    })?;
+                let redis_conn = data_conn.get_connection();
+                let s = redis_conn.get(KEY).await.unwrap();
+                assert_eq!(s, None);
             }
 
-            data_conn
-                .add_force_back_async(async |mut conn| {
-                    conn.del("sample_force_back_sentinel_async_2")
-                        .await
-                        .map_err(|e| errs::Err::with_source("fail to force back", e))
-                })
-                .await;
+            let mut ag = AsyncGroup::new();
+            data_conn.post_commit_async(&mut ag).await;
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
 
-            Ok(())
-        }
-
-        async fn set_sample_key_with_pre_commit_async(&mut self, val: &str) -> errs::Result<()> {
-            let data_conn = self
-                .get_data_conn_async::<RedisSentinelAsyncDataConn>("redis")
-                .await?;
-
-            let val_owned = val.to_string();
-
-            data_conn
-                .add_pre_commit_async(move |mut conn| {
-                    let value = val_owned.clone();
-                    async move {
-                        conn.set::<&str, &str, ()>("sample_pre_commit_sentinel_async", &value)
-                            .await
-                            .map_err(|e| {
-                                errs::Err::with_source(SampleSentinelAsyncError::FailToSetValue, e)
-                            })?;
-                        Ok(())
-                    }
-                })
-                .await;
-
-            Ok(())
-        }
-
-        async fn set_sample_key_with_post_commit_async(&mut self, val: &str) -> errs::Result<()> {
-            let data_conn = self
-                .get_data_conn_async::<RedisSentinelAsyncDataConn>("redis")
-                .await?;
-
-            let val_owned = val.to_string();
-
-            data_conn
-                .add_post_commit_async(move |mut conn| {
-                    let value = val_owned.clone();
-                    async move {
-                        conn.set::<&str, &str, ()>("sample_post_commit_sentinel_async", &value)
-                            .await
-                            .map_err(|e| {
-                                errs::Err::with_source(SampleSentinelAsyncError::FailToSetValue, e)
-                            })?;
-                        Ok(())
-                    }
-                })
-                .await;
-
-            Ok(())
-        }
-    }
-    impl RedisSentinelAsyncSampleDataAcc for DataHub {}
-
-    #[overridable]
-    trait SampleDataSentinelAsync {
-        async fn get_sample_key_async(&mut self) -> errs::Result<Option<String>>;
-        async fn set_sample_key_async(&mut self, value: &str) -> errs::Result<()>;
-        async fn del_sample_key_async(&mut self) -> errs::Result<()>;
-        async fn set_sample_key_with_force_back_async(&mut self, val: &str) -> errs::Result<()>;
-        async fn set_sample_key_with_pre_commit_async(&mut self, val: &str) -> errs::Result<()>;
-        async fn set_sample_key_with_post_commit_async(&mut self, val: &str) -> errs::Result<()>;
-    }
-    #[override_with(RedisSentinelAsyncSampleDataAcc)]
-    impl SampleDataSentinelAsync for DataHub {}
-
-    async fn sample_logic_async(data: &mut impl SampleDataSentinelAsync) -> errs::Result<()> {
-        match data.get_sample_key_async().await? {
-            Some(_) => panic!("Data exists"),
-            None => {}
-        }
-
-        data.set_sample_key_async("Hello").await?;
-
-        match data.get_sample_key_async().await? {
-            Some(val) => assert_eq!(val, "Hello"),
-            None => panic!("No data"),
-        }
-
-        data.del_sample_key_async().await?;
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_new() -> errs::Result<()> {
-        let mut data = DataHub::new();
-        data.uses(
-            "redis",
-            RedisSentinelAsyncDataSrc::new(
-                vec![
-                    "redis://127.0.0.1:26479",
-                    "redis://127.0.0.1:26480",
-                    "redis://127.0.0.1:26481",
-                ],
-                "mymaster",
-            ),
-        );
-        data.run_async(logic!(sample_logic_async)).await?;
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_with_pool_config() -> errs::Result<()> {
-        let pool_config = PoolConfig {
-            max_size: 10,
-            timeouts: Timeouts {
-                wait: Some(time::Duration::from_secs(10)),
-                create: Some(time::Duration::from_secs(11)),
-                recycle: Some(time::Duration::from_secs(12)),
-            },
-            ..Default::default()
-        };
-
-        let mut data = DataHub::new();
-        data.uses(
-            "redis",
-            RedisSentinelAsyncDataSrc::with_pool_config(
-                vec![
-                    "redis://127.0.0.1:26479",
-                    "redis://127.0.0.1:26480",
-                    "redis://127.0.0.1:26481",
-                ],
-                "mymaster",
-                pool_config,
-            ),
-        );
-        data.run_async(logic!(sample_logic_async)).await?;
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_with_config() -> errs::Result<()> {
-        let pool_config = PoolConfig {
-            max_size: 10,
-            timeouts: Timeouts {
-                wait: Some(time::Duration::from_secs(10)),
-                create: Some(time::Duration::from_secs(11)),
-                recycle: Some(time::Duration::from_secs(12)),
-            },
-            ..Default::default()
-        };
-
-        let mut redis_connection_info = deadpool_redis::RedisConnectionInfo::default();
-        redis_connection_info.db = 1;
-
-        let mut sentinel_node_connection_info =
-            deadpool_redis::sentinel::SentinelNodeConnectionInfo::default();
-        sentinel_node_connection_info.redis_connection_info = Some(redis_connection_info);
-
-        let cfg = Config {
-            urls: vec![
-                "redis://127.0.0.1:26479".to_string(),
-                "redis://127.0.0.1:26480".to_string(),
-                "redis://127.0.0.1:26481".to_string(),
-            ]
-            .into(),
-            server_type: SentinelServerType::Master,
-            master_name: "mymaster".to_string(),
-            connections: None,
-            node_connection_info: Some(sentinel_node_connection_info),
-            pool: Some(pool_config),
-        };
-
-        let mut data = DataHub::new();
-        data.uses("redis", RedisSentinelAsyncDataSrc::with_config(cfg));
-        data.run_async(logic!(sample_logic_async)).await?;
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn fail_to_setup() {
-        let mut data = DataHub::new();
-        data.uses(
-            "redis",
-            RedisSentinelAsyncDataSrc::new(vec!["xxxxxx"], "mymaster"),
-        );
-        if let Err(err) = data.run_async(logic!(sample_logic_async)).await {
-            if let Ok(r) = err.reason::<sabi::tokio::DataHubError>() {
-                match r {
-                    sabi::tokio::DataHubError::FailToSetupLocalDataSrcs { errors } => {
-                        assert_eq!(errors.len(), 1);
-                        assert_eq!(errors[0].0.as_ref(), "redis");
-                        if let Ok(r) = errors[0].1.reason::<RedisSentinelAsyncError>() {
-                            match r {
-                                RedisSentinelAsyncError::FailToBuildPool => {}
-                                _ => panic!(),
-                            }
-                        }
-                        let e = errors[0]
-                            .1
-                            .source()
-                            .unwrap()
-                            .downcast_ref::<deadpool_redis::CreatePoolError>()
-                            .unwrap();
-                        match e {
-                            deadpool_redis::CreatePoolError::Config(ce) => match ce {
-                                deadpool_redis::ConfigError::Redis(re) => {
-                                    assert_eq!(re.kind(), redis::ErrorKind::InvalidClientConfig);
-                                    assert_eq!(re.detail(), None);
-                                    assert_eq!(re.code(), None);
-                                    assert_eq!(re.category(), "invalid client config");
-                                }
-                                _ => panic!(),
-                            },
-                            _ => panic!("{e:?}"),
-                        }
-                    }
-                    _ => panic!("{err:?}"),
-                }
-            } else {
-                panic!("{err:?}")
+            {
+                let redis_conn = data_conn.get_connection();
+                let s = redis_conn.get(KEY).await.unwrap();
+                assert_eq!(s, None);
             }
-        } else {
-            panic!();
+
+            let mut ag = AsyncGroup::new();
+            data_conn.rollback_async(&mut ag).await;
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+
+            {
+                let redis_conn = data_conn.get_connection();
+                let s = redis_conn.get(KEY).await.unwrap();
+                assert_eq!(s, None);
+            }
+
+            let mut ag = AsyncGroup::new();
+            data_conn.force_back_async(&mut ag).await;
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+
+            {
+                let redis_conn = data_conn.get_connection();
+                let s = redis_conn.get(KEY).await.unwrap();
+                assert_eq!(s, None);
+            }
+
+            data_conn.close();
+            ds.close();
         }
-    }
 
-    async fn sample_logic_with_force_back_async_ok(
-        data: &mut impl SampleDataSentinelAsync,
-    ) -> errs::Result<()> {
-        data.set_sample_key_with_force_back_async("Good Afternoon")
-            .await?;
-        Ok(())
-    }
-    async fn sample_logic_with_force_back_async_err(
-        data: &mut impl SampleDataSentinelAsync,
-    ) -> errs::Result<()> {
-        data.set_sample_key_with_force_back_async("Good Afternoon")
-            .await?;
-        Err(errs::Err::new("XXX"))
-    }
-    async fn sample_logic_with_pre_commit_async(
-        data: &mut impl SampleDataSentinelAsync,
-    ) -> errs::Result<()> {
-        data.set_sample_key_with_pre_commit_async("Good Evening")
-            .await?;
-        Ok(())
-    }
-    async fn sample_logic_with_post_commit_async(
-        data: &mut impl SampleDataSentinelAsync,
-    ) -> errs::Result<()> {
-        data.set_sample_key_with_post_commit_async("Good Night")
-            .await?;
-        Ok(())
-    }
+        #[tokio::test]
+        async fn fail() {
+            const KEY: &str = "test_add_pre_commit_async/sentinel/fail";
 
-    #[tokio::test]
-    async fn test_txn_and_force_back() -> errs::Result<()> {
-        let mut data = DataHub::new();
-        data.uses(
-            "redis",
-            RedisSentinelAsyncDataSrc::new(
-                vec![
+            let mut ds = RedisSentinelDataSrcAsync::new(
+                &[
                     "redis://127.0.0.1:26479",
                     "redis://127.0.0.1:26480",
                     "redis://127.0.0.1:26481",
                 ],
                 "mymaster",
-            ),
-        );
+                SentinelServerType::Master,
+            );
+            let mut ag = AsyncGroup::new();
+            if let Err(err) = ds.setup_async(&mut ag).await {
+                panic!("{err:?}");
+            }
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
 
-        let r = data
-            .txn_async(logic!(sample_logic_with_force_back_async_ok))
-            .await;
-        assert!(r.is_ok());
+            let Ok(mut data_conn) = ds.create_data_conn_async().await else {
+                panic!("fail to create data_conn");
+            };
+            assert!(data_conn.should_force_back());
 
-        {
-            let mut sentinel = redis::sentinel::Sentinel::build(vec![
-                "redis://127.0.0.1:26479",
-                "redis://127.0.0.1:26480",
-                "redis://127.0.0.1:26481",
-            ])
-            .unwrap();
+            data_conn
+                .add_pre_commit_async(async |mut redis_conn| {
+                    redis_conn.set(KEY, "1").await.unwrap();
+                    Err(errs::Err::new("fail"))
+                })
+                .await;
 
-            let client = sentinel.async_master_for("mymaster", None).await.unwrap();
-            let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+            let mut ag = AsyncGroup::new();
+            let Err(err) = data_conn.pre_commit_async(&mut ag).await else {
+                panic!();
+            };
+            let s = err.reason::<&str>().unwrap();
+            assert_eq!(*s, "fail");
 
-            let r: redis::RedisResult<Option<String>> =
-                conn.get("sample_force_back_sentinel_async").await;
-            let _: redis::RedisResult<()> = conn.del("sample_force_back_sentinel_async").await;
-            assert_eq!(r.unwrap().unwrap(), "Good Afternoon");
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
 
-            let r: redis::RedisResult<Option<String>> =
-                conn.get("sample_force_back_sentinel_async_2").await;
-            let _: redis::RedisResult<()> = conn.del("sample_force_back_sentinel_async_2").await;
-            assert_eq!(r.unwrap().unwrap(), "Good Afternoon");
+            {
+                let redis_conn = data_conn.get_connection();
+                let s = redis_conn.get(KEY).await.unwrap();
+                redis_conn.del(KEY).await.unwrap();
+                assert_eq!(s, Some("1".to_string()));
+            }
+
+            let mut ag = AsyncGroup::new();
+            data_conn.commit_async(&mut ag).await.unwrap();
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+
+            {
+                let redis_conn = data_conn.get_connection();
+                let s = redis_conn.get(KEY).await.unwrap();
+                assert_eq!(s, None);
+            }
+
+            let mut ag = AsyncGroup::new();
+            data_conn.post_commit_async(&mut ag).await;
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+
+            {
+                let redis_conn = data_conn.get_connection();
+                let s = redis_conn.get(KEY).await.unwrap();
+                assert_eq!(s, None);
+            }
+
+            let mut ag = AsyncGroup::new();
+            data_conn.rollback_async(&mut ag).await;
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+
+            {
+                let redis_conn = data_conn.get_connection();
+                let s = redis_conn.get(KEY).await.unwrap();
+                assert_eq!(s, None);
+            }
+
+            let mut ag = AsyncGroup::new();
+            data_conn.force_back_async(&mut ag).await;
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+
+            {
+                let redis_conn = data_conn.get_connection();
+                let s = redis_conn.get(KEY).await.unwrap();
+                assert_eq!(s, None);
+            }
+
+            data_conn.close();
+            ds.close();
         }
-
-        if let Err(err) = data
-            .txn_async(logic!(sample_logic_with_force_back_async_err))
-            .await
-        {
-            assert_eq!(err.reason::<&str>().unwrap(), &"XXX");
-        } else {
-            panic!();
-        }
-
-        {
-            let mut sentinel = redis::sentinel::Sentinel::build(vec![
-                "redis://127.0.0.1:26479",
-                "redis://127.0.0.1:26480",
-                "redis://127.0.0.1:26481",
-            ])
-            .unwrap();
-
-            let client = sentinel.async_master_for("mymaster", None).await.unwrap();
-            let mut conn = client.get_multiplexed_async_connection().await.unwrap();
-
-            let r: redis::RedisResult<Option<String>> =
-                conn.get("sample_force_back_sentinel_async").await;
-            let _: redis::RedisResult<()> = conn.del("sample_force_back_sentinel_async").await;
-            assert!(r.unwrap().is_none());
-
-            let r: redis::RedisResult<Option<String>> =
-                conn.get("sample_force_back_sentinel_async_2").await;
-            let _: redis::RedisResult<()> = conn.del("sample_force_back_sentinel_async_2").await;
-            assert!(r.unwrap().is_none());
-        }
-
-        Ok(())
     }
 
-    #[tokio::test]
-    async fn test_txn_and_pre_commit() -> errs::Result<()> {
-        let mut data = DataHub::new();
-        data.uses(
-            "redis",
-            RedisSentinelAsyncDataSrc::new(
-                vec![
+    mod test_add_post_commit {
+        use super::*;
+        use redis::AsyncTypedCommands;
+
+        #[tokio::test]
+        async fn ok() {
+            const KEY: &str = "test_add_post_commit_async/sentinel";
+
+            let mut ds = RedisSentinelDataSrcAsync::new(
+                &[
                     "redis://127.0.0.1:26479",
                     "redis://127.0.0.1:26480",
                     "redis://127.0.0.1:26481",
                 ],
                 "mymaster",
-            ),
-        );
-        data.txn_async(logic!(sample_logic_with_pre_commit_async))
-            .await?;
+                SentinelServerType::Master,
+            );
+            let mut ag = AsyncGroup::new();
+            if let Err(err) = ds.setup_async(&mut ag).await {
+                panic!("{err:?}");
+            }
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
 
-        {
-            let mut sentinel = redis::sentinel::Sentinel::build(vec![
-                "redis://127.0.0.1:26479",
-                "redis://127.0.0.1:26480",
-                "redis://127.0.0.1:26481",
-            ])
-            .unwrap();
+            let Ok(mut data_conn) = ds.create_data_conn_async().await else {
+                panic!("fail to create data_conn");
+            };
+            assert!(data_conn.should_force_back());
 
-            let client = sentinel.async_master_for("mymaster", None).await.unwrap();
-            let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+            data_conn
+                .add_post_commit_async(async |mut redis_conn| {
+                    redis_conn.set(KEY, "1").await.unwrap();
+                    Ok(())
+                })
+                .await;
 
-            let s: redis::RedisResult<Option<String>> =
-                conn.get("sample_pre_commit_sentinel_async").await;
-            let _: redis::RedisResult<()> = conn.del("sample_pre_commit_sentinel_async").await;
-            assert_eq!(s.unwrap().unwrap(), "Good Evening");
+            let mut ag = AsyncGroup::new();
+            data_conn.pre_commit_async(&mut ag).await.unwrap();
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+
+            {
+                let redis_conn = data_conn.get_connection();
+                let s = redis_conn.get(KEY).await.unwrap();
+                assert_eq!(s, None);
+            }
+
+            let mut ag = AsyncGroup::new();
+            data_conn.commit_async(&mut ag).await.unwrap();
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+
+            {
+                let redis_conn = data_conn.get_connection();
+                let s = redis_conn.get(KEY).await.unwrap();
+                assert_eq!(s, None);
+            }
+
+            let mut ag = AsyncGroup::new();
+            data_conn.post_commit_async(&mut ag).await;
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+
+            {
+                let redis_conn = data_conn.get_connection();
+                let s = redis_conn.get(KEY).await.unwrap();
+                redis_conn.del(KEY).await.unwrap();
+                assert_eq!(s, Some("1".to_string()));
+            }
+
+            let mut ag = AsyncGroup::new();
+            data_conn.rollback_async(&mut ag).await;
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+
+            {
+                let redis_conn = data_conn.get_connection();
+                let s = redis_conn.get(KEY).await.unwrap();
+                assert_eq!(s, None);
+            }
+
+            let mut ag = AsyncGroup::new();
+            data_conn.force_back_async(&mut ag).await;
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+
+            {
+                let redis_conn = data_conn.get_connection();
+                let s = redis_conn.get(KEY).await.unwrap();
+                assert_eq!(s, None);
+            }
+
+            data_conn.close();
+            ds.close();
         }
 
-        Ok(())
-    }
+        #[tokio::test]
+        async fn fail() {
+            const KEY: &str = "test_add_post_commit_async/sentinel/fail";
 
-    #[tokio::test]
-    async fn test_txn_and_post_commit() -> errs::Result<()> {
-        let mut data = DataHub::new();
-        data.uses(
-            "redis",
-            RedisSentinelAsyncDataSrc::new(
-                vec![
+            let mut ds = RedisSentinelDataSrcAsync::new(
+                &[
                     "redis://127.0.0.1:26479",
                     "redis://127.0.0.1:26480",
                     "redis://127.0.0.1:26481",
                 ],
                 "mymaster",
-            ),
-        );
-        data.txn_async(logic!(sample_logic_with_post_commit_async))
-            .await?;
+                SentinelServerType::Master,
+            );
+            let mut ag = AsyncGroup::new();
+            if let Err(err) = ds.setup_async(&mut ag).await {
+                panic!("{err:?}");
+            }
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
 
-        {
-            let mut sentinel = redis::sentinel::Sentinel::build(vec![
-                "redis://127.0.0.1:26479",
-                "redis://127.0.0.1:26480",
-                "redis://127.0.0.1:26481",
-            ])
-            .unwrap();
+            let Ok(mut data_conn) = ds.create_data_conn_async().await else {
+                panic!("fail to create data_conn");
+            };
+            assert!(data_conn.should_force_back());
 
-            let client = sentinel.async_master_for("mymaster", None).await.unwrap();
-            let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+            data_conn
+                .add_post_commit_async(async |mut redis_conn| {
+                    redis_conn.set(KEY, "1").await.unwrap();
+                    Err(errs::Err::new("fail"))
+                })
+                .await;
 
-            let s: redis::RedisResult<Option<String>> =
-                conn.get("sample_post_commit_sentinel_async").await;
-            let _: redis::RedisResult<()> = conn.del("sample_post_commit_sentinel_async").await;
-            assert_eq!(s.unwrap().unwrap(), "Good Night");
+            let mut ag = AsyncGroup::new();
+            if let Err(err) = data_conn.pre_commit_async(&mut ag).await {
+                panic!("{err:?}");
+            };
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+
+            {
+                let redis_conn = data_conn.get_connection();
+                let s = redis_conn.get(KEY).await.unwrap();
+                assert_eq!(s, None);
+            }
+
+            let mut ag = AsyncGroup::new();
+            data_conn.commit_async(&mut ag).await.unwrap();
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+
+            {
+                let redis_conn = data_conn.get_connection();
+                let s = redis_conn.get(KEY).await.unwrap();
+                assert_eq!(s, None);
+            }
+
+            let mut ag = AsyncGroup::new();
+            data_conn.post_commit_async(&mut ag).await;
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+
+            {
+                let redis_conn = data_conn.get_connection();
+                let s = redis_conn.get(KEY).await.unwrap();
+                redis_conn.del(KEY).await.unwrap();
+                assert_eq!(s, Some("1".to_string()));
+            }
+
+            let mut ag = AsyncGroup::new();
+            data_conn.rollback_async(&mut ag).await;
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+
+            {
+                let redis_conn = data_conn.get_connection();
+                let s = redis_conn.get(KEY).await.unwrap();
+                assert_eq!(s, None);
+            }
+
+            let mut ag = AsyncGroup::new();
+            data_conn.force_back_async(&mut ag).await;
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+
+            {
+                let redis_conn = data_conn.get_connection();
+                let s = redis_conn.get(KEY).await.unwrap();
+                assert_eq!(s, None);
+            }
+
+            data_conn.close();
+            ds.close();
         }
-        Ok(())
+    }
+
+    mod test_add_force_back {
+        use super::*;
+        use redis::AsyncTypedCommands;
+
+        #[tokio::test]
+        async fn ok() {
+            const KEY: &str = "test_add_force_back_async/sentinel";
+
+            let mut ds = RedisSentinelDataSrcAsync::new(
+                &[
+                    "redis://127.0.0.1:26479",
+                    "redis://127.0.0.1:26480",
+                    "redis://127.0.0.1:26481",
+                ],
+                "mymaster",
+                SentinelServerType::Master,
+            );
+            let mut ag = AsyncGroup::new();
+            if let Err(err) = ds.setup_async(&mut ag).await {
+                panic!("{err:?}");
+            }
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+
+            let Ok(mut data_conn) = ds.create_data_conn_async().await else {
+                panic!("fail to create data_conn");
+            };
+            assert!(data_conn.should_force_back());
+
+            data_conn
+                .add_force_back_async(async |mut redis_conn| {
+                    redis_conn.set(KEY, "1").await.unwrap();
+                    Ok(())
+                })
+                .await;
+
+            let mut ag = AsyncGroup::new();
+            data_conn.pre_commit_async(&mut ag).await.unwrap();
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+
+            {
+                let redis_conn = data_conn.get_connection();
+                let s = redis_conn.get(KEY).await.unwrap();
+                assert_eq!(s, None);
+            }
+
+            let mut ag = AsyncGroup::new();
+            data_conn.commit_async(&mut ag).await.unwrap();
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+
+            {
+                let redis_conn = data_conn.get_connection();
+                let s = redis_conn.get(KEY).await.unwrap();
+                assert_eq!(s, None);
+            }
+
+            let mut ag = AsyncGroup::new();
+            data_conn.post_commit_async(&mut ag).await;
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+
+            {
+                let redis_conn = data_conn.get_connection();
+                let s = redis_conn.get(KEY).await.unwrap();
+                assert_eq!(s, None);
+            }
+
+            let mut ag = AsyncGroup::new();
+            data_conn.rollback_async(&mut ag).await;
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+
+            {
+                let redis_conn = data_conn.get_connection();
+                let s = redis_conn.get(KEY).await.unwrap();
+                assert_eq!(s, None);
+            }
+
+            let mut ag = AsyncGroup::new();
+            data_conn.force_back_async(&mut ag).await;
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+
+            {
+                let redis_conn = data_conn.get_connection();
+                let s = redis_conn.get(KEY).await.unwrap();
+                redis_conn.del(KEY).await.unwrap();
+                assert_eq!(s, Some("1".to_string()));
+            }
+
+            data_conn.close();
+            ds.close();
+        }
+
+        #[tokio::test]
+        async fn fail() {
+            const KEY: &str = "test_add_force_back_async/sentinel/fail";
+
+            let mut ds = RedisSentinelDataSrcAsync::new(
+                &[
+                    "redis://127.0.0.1:26479",
+                    "redis://127.0.0.1:26480",
+                    "redis://127.0.0.1:26481",
+                ],
+                "mymaster",
+                SentinelServerType::Master,
+            );
+            let mut ag = AsyncGroup::new();
+            if let Err(err) = ds.setup_async(&mut ag).await {
+                panic!("{err:?}");
+            }
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+
+            let Ok(mut data_conn) = ds.create_data_conn_async().await else {
+                panic!("fail to create data_conn");
+            };
+            assert!(data_conn.should_force_back());
+
+            data_conn
+                .add_force_back_async(async |mut redis_conn| {
+                    redis_conn.set(KEY, "1").await.unwrap();
+                    Err(errs::Err::new("fail"))
+                })
+                .await;
+
+            let mut ag = AsyncGroup::new();
+            if let Err(err) = data_conn.pre_commit_async(&mut ag).await {
+                panic!("{:?}", err);
+            };
+
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+
+            {
+                let redis_conn = data_conn.get_connection();
+                let s = redis_conn.get(KEY).await.unwrap();
+                assert_eq!(s, None);
+            }
+
+            let mut ag = AsyncGroup::new();
+            data_conn.commit_async(&mut ag).await.unwrap();
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+
+            {
+                let redis_conn = data_conn.get_connection();
+                let s = redis_conn.get(KEY).await.unwrap();
+                assert_eq!(s, None);
+            }
+
+            let mut ag = AsyncGroup::new();
+            data_conn.post_commit_async(&mut ag).await;
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+
+            {
+                let redis_conn = data_conn.get_connection();
+                let s = redis_conn.get(KEY).await.unwrap();
+                assert_eq!(s, None);
+            }
+
+            let mut ag = AsyncGroup::new();
+            data_conn.rollback_async(&mut ag).await;
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+
+            {
+                let redis_conn = data_conn.get_connection();
+                let s = redis_conn.get(KEY).await.unwrap();
+                assert_eq!(s, None);
+            }
+
+            let mut ag = AsyncGroup::new();
+            data_conn.force_back_async(&mut ag).await;
+            let errors = ag.join_async().await;
+            assert!(errors.is_empty());
+
+            {
+                let redis_conn = data_conn.get_connection();
+                let s = redis_conn.get(KEY).await.unwrap();
+                redis_conn.del(KEY).await.unwrap();
+                assert_eq!(s, Some("1".to_string()));
+            }
+
+            data_conn.close();
+            ds.close();
+        }
     }
 }
