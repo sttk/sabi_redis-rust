@@ -2,18 +2,16 @@
 // This program is free software under MIT License.
 // See the file LICENSE in this distribution for more details.
 
-use std::{thread, time};
+use tokio::time;
 
-/// A helper for retrying operations with exponential backoff.
-pub(crate) struct Retry {
+pub(crate) struct RetryAsync {
     max_count: u32,
     init_delay_ms: u64,
     max_delay_ms: u64,
     current_count: u32,
 }
 
-impl Retry {
-    /// Creates a new `Retry` instance with default parameters.
+impl RetryAsync {
     pub(crate) fn new() -> Self {
         Self {
             max_count: 30,
@@ -23,7 +21,6 @@ impl Retry {
         }
     }
 
-    /// Creates a new `Retry` instance with the specified parameters.
     pub(crate) fn with_params(max_count: u32, init_delay_ms: u64, max_delay_ms: u64) -> Self {
         Self {
             max_count,
@@ -33,16 +30,11 @@ impl Retry {
         }
     }
 
-    /// Resets the retry count.
     pub(crate) fn reset(&mut self) {
         self.current_count = 0;
     }
 
-    /// Waits for a certain period based on the current retry count and exponential backoff.
-    ///
-    /// Returns `true` if it waited and another attempt can be made, or `false` if the
-    /// maximum retry count has been reached.
-    pub(crate) fn wait_with_backoff(&mut self) -> bool {
+    pub(crate) async fn wait_with_backoff_async(&mut self) -> bool {
         if self.current_count >= self.max_count {
             return false;
         }
@@ -51,7 +43,7 @@ impl Retry {
             .init_delay_ms
             .saturating_mul(2u64.saturating_pow(self.current_count))
             .min(self.max_delay_ms);
-        thread::sleep(time::Duration::from_millis(wait_ms));
+        time::sleep(time::Duration::from_millis(wait_ms)).await;
         self.current_count = count;
         true
     }
@@ -60,11 +52,11 @@ impl Retry {
 #[cfg(test)]
 mod unit_tests {
     use super::*;
-    use std::time::Instant;
+    use tokio::time::Instant;
 
     #[test]
     fn test_new() {
-        let retry = Retry::new();
+        let retry = RetryAsync::new();
         assert_eq!(retry.max_count, 30);
         assert_eq!(retry.init_delay_ms, 1000);
         assert_eq!(retry.max_delay_ms, 5000);
@@ -73,53 +65,53 @@ mod unit_tests {
 
     #[test]
     fn test_with_params() {
-        let retry = Retry::with_params(5, 100, 1000);
+        let retry = RetryAsync::with_params(5, 100, 1000);
         assert_eq!(retry.max_count, 5);
         assert_eq!(retry.init_delay_ms, 100);
         assert_eq!(retry.max_delay_ms, 1000);
         assert_eq!(retry.current_count, 0);
     }
 
-    #[test]
-    fn test_wait_with_backoff() {
-        let mut retry = Retry::with_params(6, 100, 1000);
+    #[tokio::test]
+    async fn test_wait_with_backoff() {
+        let mut retry = RetryAsync::with_params(6, 100, 1000);
 
         let tm = Instant::now();
-        assert!(retry.wait_with_backoff());
+        assert!(retry.wait_with_backoff_async().await);
         let d = tm.elapsed().as_millis();
         assert!(d > 90);
         assert!(d < 200);
 
         let tm = Instant::now();
-        assert!(retry.wait_with_backoff());
+        assert!(retry.wait_with_backoff_async().await);
         let d = tm.elapsed().as_millis();
         assert!(d > 190);
         assert!(d < 300);
 
         let tm = Instant::now();
-        assert!(retry.wait_with_backoff());
+        assert!(retry.wait_with_backoff_async().await);
         let d = tm.elapsed().as_millis();
         assert!(d > 390);
         assert!(d < 500);
 
         let tm = Instant::now();
-        assert!(retry.wait_with_backoff());
+        assert!(retry.wait_with_backoff_async().await);
         let d = tm.elapsed().as_millis();
         assert!(d > 790);
         assert!(d < 900);
 
         let tm = Instant::now();
-        assert!(retry.wait_with_backoff());
+        assert!(retry.wait_with_backoff_async().await);
         let d = tm.elapsed().as_millis();
         assert!(d > 990);
         assert!(d < 1100);
 
         let tm = Instant::now();
-        assert!(retry.wait_with_backoff());
+        assert!(retry.wait_with_backoff_async().await);
         let d = tm.elapsed().as_millis();
         assert!(d > 990);
         assert!(d < 1100);
 
-        assert!(!retry.wait_with_backoff());
+        assert!(!retry.wait_with_backoff_async().await);
     }
 }

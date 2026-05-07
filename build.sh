@@ -30,7 +30,7 @@ compile() {
 test() {
   ulimit -n 8192
 
-  echo "### features: default (= standalone-sync)"
+  echo "### features: default (= standalone)"
   cargo test -- --show-output
   errcheck $?
 
@@ -38,16 +38,16 @@ test() {
   cargo test --features standalone-async --no-default-features -- --show-output
   errcheck $?
 
-  echo "### features: sentinel-sync"
-  cargo test --features sentinel-sync --no-default-features -- --show-output
+  echo "### features: sentinel"
+  cargo test --features sentinel --no-default-features -- --show-output
   errcheck $?
 
   echo "### features: sentinel-async"
   cargo test --features sentinel-async --no-default-features -- --show-output
   errcheck $?
 
-  echo "### features: cluster-sync"
-  cargo test --features cluster-sync --no-default-features -- --show-output
+  echo "### features: cluster"
+  cargo test --features cluster --no-default-features -- --show-output
   errcheck $?
 
   echo "### features: cluster-async"
@@ -91,7 +91,7 @@ if [[ "$#" == "0" ]]; then
   test
   lint
   doc
-  #cover
+  cover
 
 elif [[ "$1" == "unit" ]]; then
   unit $2
