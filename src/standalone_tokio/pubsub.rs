@@ -11,27 +11,13 @@ use std::fmt::Debug;
 #[derive(Debug)]
 pub enum RedisPubSubSubscriberErrorAsync {
     AddressAlreadyConsumed,
-    FailToOpenClientOfAddr {
-        addr: String,
-    },
-    FailToOpenClientOfConnAddr {
-        conn_addr: ConnectionAddr,
-    },
-    FailToOpenClientOfConnInfo {
-        conn_info: ConnectionInfo,
-    },
-    FailToGetAsyncPubSub {
-        conn_info: ConnectionInfo,
-    },
-    FailToSubscribeToChannels {
-        conn_info: ConnectionInfo,
-    },
-    FailToSubscribeToChannelsWithPatterns {
-        conn_info: ConnectionInfo,
-    },
-    FailToGetMessage {
-        conn_info: ConnectionInfo,
-    },
+    FailToOpenClientOfAddr { addr: String },
+    FailToOpenClientOfConnAddr { conn_addr: ConnectionAddr },
+    FailToOpenClientOfConnInfo { conn_info: ConnectionInfo },
+    FailToGetAsyncPubSub { conn_info: ConnectionInfo },
+    FailToSubscribeToChannels { conn_info: ConnectionInfo },
+    FailToSubscribeToChannelsWithPatterns { conn_info: ConnectionInfo },
+    FailToGetMessage { conn_info: ConnectionInfo },
 }
 
 pub struct RedisPubSubSubscriberAsync<A>

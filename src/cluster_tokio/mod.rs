@@ -16,12 +16,8 @@ use tokio::time;
 pub enum RedisErrorAsync {
     NotSetupYet,
     AlreadySetup,
-    FailToConnect {
-        config: Config,
-    },
-    FailToBuildPool {
-        config: Config,
-    },
+    FailToConnect { config: Config },
+    FailToBuildPool { config: Config },
     FailToGetConnectionFromPool,
 }
 
@@ -92,7 +88,7 @@ impl DataConn for RedisDataConnAsync {
     async fn post_commit_async(&mut self, _ag: &mut AsyncGroup) {
         let vec = mem::take(&mut self.post_commit_vec);
         for fut in vec.into_iter() {
-            // The error are not exposed externally, but a notification is triggered when
+            // The error is not exposed externally, but a notification is triggered when
             // errs::Err is created.
             let _ = fut.await;
         }
@@ -107,7 +103,7 @@ impl DataConn for RedisDataConnAsync {
     async fn force_back_async(&mut self, _ag: &mut AsyncGroup) {
         let vec = mem::take(&mut self.force_back_vec);
         for fut in vec.into_iter().rev() {
-            // The error are not exposed externally, but a notification is triggered when
+            // The error is not exposed externally, but a notification is triggered when
             // errs::Err is created.
             let _ = fut.await;
         }

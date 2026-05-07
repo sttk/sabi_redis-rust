@@ -18,24 +18,12 @@ use std::mem;
 pub enum RedisError {
     NotSetupYet,
     AlreadySetup,
-    FailToBuildClientOfAddrs {
-        addrs: Vec<String>,
-    },
-    FailToBuildPoolOfAddrs {
-        addrs: Vec<String>,
-    },
-    FailToBuildClientOfConnAddrs {
-        conn_addrs: Vec<ConnectionAddr>,
-    },
-    FailToBuildPoolOfConnAddrs {
-        conn_addrs: Vec<ConnectionAddr>,
-    },
-    FailToBuildClientOfConnInfos {
-        conn_infos: Vec<ConnectionInfo>,
-    },
-    FailToBuildPoolOfConnInfos {
-        conn_infos: Vec<ConnectionInfo>,
-    },
+    FailToBuildClientOfAddrs { addrs: Vec<String> },
+    FailToBuildPoolOfAddrs { addrs: Vec<String> },
+    FailToBuildClientOfConnAddrs { conn_addrs: Vec<ConnectionAddr> },
+    FailToBuildPoolOfConnAddrs { conn_addrs: Vec<ConnectionAddr> },
+    FailToBuildClientOfConnInfos { conn_infos: Vec<ConnectionInfo> },
+    FailToBuildPoolOfConnInfos { conn_infos: Vec<ConnectionInfo> },
     FailToBuildClientWithClientBuilder,
     FailToBuildPoolWithClientBuilder,
     FailToGetConnectionFromPool,
@@ -99,7 +87,7 @@ impl DataConn for RedisDataConn {
 
     fn post_commit(&mut self, _ag: &mut AsyncGroup) {
         for f in self.post_commit_vec.iter_mut() {
-            // The error are not exposed externally, but a notification is triggered when
+            // The error is not exposed externally, but a notification is triggered when
             // errs::Err is created.
             let _ = f(&mut self.conn);
         }
@@ -113,7 +101,7 @@ impl DataConn for RedisDataConn {
 
     fn force_back(&mut self, _ag: &mut AsyncGroup) {
         for f in self.force_back_vec.iter_mut().rev() {
-            // The error are not exposed externally, but a notification is triggered when
+            // The error is not exposed externally, but a notification is triggered when
             // errs::Err is created.
             let _ = f(&mut self.conn);
         }

@@ -10,27 +10,13 @@ use crate::retry::Retry;
 #[derive(Debug)]
 pub enum RedisPubSubSubscriberError {
     AddressAlreadyConsumed,
-    FailToOpenClientOfAddr {
-        addr: String,
-    },
-    FailToOpenClientOfConnAddr {
-        conn_addr: ConnectionAddr,
-    },
-    FailToOpenClientOfConnInfo {
-        conn_info: ConnectionInfo,
-    },
-    FailToGetConnection {
-        conn_info: ConnectionInfo,
-    },
-    FailToSubscribeToChannels {
-        conn_info: ConnectionInfo,
-    },
-    FailToSubscribeToChannelsWithPatterns {
-        conn_info: ConnectionInfo,
-    },
-    FailToGetMessage {
-        conn_info: ConnectionInfo,
-    },
+    FailToOpenClientOfAddr { addr: String },
+    FailToOpenClientOfConnAddr { conn_addr: ConnectionAddr },
+    FailToOpenClientOfConnInfo { conn_info: ConnectionInfo },
+    FailToGetConnection { conn_info: ConnectionInfo },
+    FailToSubscribeToChannels { conn_info: ConnectionInfo },
+    FailToSubscribeToChannelsWithPatterns { conn_info: ConnectionInfo },
+    FailToGetMessage { conn_info: ConnectionInfo },
 }
 
 pub struct RedisPubSubSubscriber<A>

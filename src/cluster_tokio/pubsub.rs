@@ -13,21 +13,11 @@ use std::fmt::Debug;
 #[derive(Debug)]
 pub enum RedisPubSubSubscriberErrorAsync {
     ClusterConfigAlreadyConsumed,
-    InvalidAddrs {
-        addrs: Vec<String>,
-    },
-    InvalidConnAddrs {
-        conn_addrs: Vec<ConnectionAddr>,
-    },
-    FailToOpenClient {
-        conn_info: ConnectionInfo,
-    },
-    FailToGetAsyncPubSub {
-        conn_info: ConnectionInfo,
-    },
-    FailToGetConnection {
-        conn_info: ConnectionInfo,
-    },
+    InvalidAddrs { addrs: Vec<String> },
+    InvalidConnAddrs { conn_addrs: Vec<ConnectionAddr> },
+    FailToOpenClient { conn_info: ConnectionInfo },
+    FailToGetAsyncPubSub { conn_info: ConnectionInfo },
+    FailToGetConnection { conn_info: ConnectionInfo },
     FailToSubscribeToChannels,
     FailToSubscribeToChannelsWithPatterns,
     FailToGetMessage,
