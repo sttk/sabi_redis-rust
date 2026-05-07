@@ -12,17 +12,39 @@ use sabi::{AsyncGroup, DataConn, DataSrc};
 use std::fmt::Debug;
 use std::mem;
 
+/// Errors related to Redis data source and connection for standalone environment.
 #[derive(Debug)]
 pub enum RedisError {
+    /// Indicates that the data source is not yet setup.
     NotSetupYet,
+    /// Indicates that the data source is already setup.
     AlreadySetup,
-    FailToOpenClientOfAddr { addr: String },
-    FailToOpenClientOfConnAddr { conn_addr: ConnectionAddr },
-    FailToOpenClientOfConnInfo { conn_info: ConnectionInfo },
-    FailToBuildPool { conn_info: ConnectionInfo },
+    /// Failed to open a Redis client with the specified address string.
+    FailToOpenClientOfAddr {
+        /// The Redis connection address string.
+        addr: String,
+    },
+    /// Failed to open a Redis client with the specified `ConnectionAddr`.
+    FailToOpenClientOfConnAddr {
+        /// The Redis `ConnectionAddr`.
+        conn_addr: ConnectionAddr,
+    },
+    /// Failed to open a Redis client with the specified `ConnectionInfo`.
+    FailToOpenClientOfConnInfo {
+        /// The Redis `ConnectionInfo`.
+        conn_info: ConnectionInfo,
+    },
+    /// Failed to build a Redis connection pool.
+    FailToBuildPool {
+        /// The Redis `ConnectionInfo`.
+        conn_info: ConnectionInfo,
+    },
+    /// Failed to get a connection from the pool.
     FailToGetConnectionFromPool,
 }
 
+/// A struct that holds a pooled Redis connection and transaction callbacks for standalone
+/// environment.
 #[allow(clippy::type_complexity)]
 pub struct RedisDataConn {
     conn: PooledConnection<Client>,
@@ -41,10 +63,20 @@ impl RedisDataConn {
         }
     }
 
+    /// Returns a mutable reference to the underlying Redis connection.
+    ///
+    /// # Returns
+    ///
+    /// A mutable reference to the `redis::Connection`.
     pub fn get_connection(&mut self) -> &mut Connection {
         &mut self.conn
     }
 
+    /// Adds a callback function to be executed before a transaction is committed.
+    ///
+    /// # Arguments
+    ///
+    /// * `f` - A callback function that takes a mutable reference to the Redis connection.
     pub fn add_pre_commit<F>(&mut self, f: F)
     where
         F: FnMut(&mut Connection) -> errs::Result<()> + 'static,
@@ -52,6 +84,11 @@ impl RedisDataConn {
         self.pre_commit_vec.push(Box::new(f));
     }
 
+    /// Adds a callback function to be executed after a transaction is committed.
+    ///
+    /// # Arguments
+    ///
+    /// * `f` - A callback function that takes a mutable reference to the Redis connection.
     pub fn add_post_commit<F>(&mut self, f: F)
     where
         F: FnMut(&mut Connection) -> errs::Result<()> + 'static,
@@ -59,6 +96,11 @@ impl RedisDataConn {
         self.post_commit_vec.push(Box::new(f));
     }
 
+    /// Adds a callback function to be executed when a transaction is rolled back or forced back.
+    ///
+    /// # Arguments
+    ///
+    /// * `f` - A callback function that takes a mutable reference to the Redis connection.
     pub fn add_force_back<F>(&mut self, f: F)
     where
         F: FnMut(&mut Connection) -> errs::Result<()> + 'static,
@@ -104,6 +146,7 @@ impl DataConn for RedisDataConn {
     fn close(&mut self) {}
 }
 
+/// A struct that manages a Redis connection pool for standalone environment.
 pub struct RedisDataSrc {
     pool: Option<RedisPool>,
 }
@@ -116,6 +159,15 @@ enum RedisPool {
 }
 
 impl RedisDataSrc {
+    /// Creates a new `RedisDataSrc` with a connection address string.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - A string slice that holds the Redis connection address (e.g., "redis://127.0.0.1/").
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisDataSrc`.
     pub fn new<S>(addr: S) -> Self
     where
         S: AsRef<str>,
@@ -128,6 +180,16 @@ impl RedisDataSrc {
         }
     }
 
+    /// Creates a new `RedisDataSrc` with a connection address and a custom pool builder.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - A string slice that holds the Redis connection address.
+    /// * `pool_builder` - A `r2d2::Builder` for configuring the connection pool.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisDataSrc`.
     pub fn with_pool_builder<S>(addr: S, pool_builder: Builder<Client>) -> Self
     where
         S: AsRef<str>,
@@ -140,12 +202,31 @@ impl RedisDataSrc {
         }
     }
 
+    /// Creates a new `RedisDataSrc` with a `ConnectionAddr`.
+    ///
+    /// # Arguments
+    ///
+    /// * `conn_addr` - A Redis `ConnectionAddr`.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisDataSrc`.
     pub fn with_conn_addr(conn_addr: ConnectionAddr) -> Self {
         Self {
             pool: Some(RedisPool::ConnAddrConfig(conn_addr, Pool::builder())),
         }
     }
 
+    /// Creates a new `RedisDataSrc` with a `ConnectionAddr` and a custom pool builder.
+    ///
+    /// # Arguments
+    ///
+    /// * `conn_addr` - A Redis `ConnectionAddr`.
+    /// * `pool_builder` - A `r2d2::Builder` for configuring the connection pool.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisDataSrc`.
     pub fn with_conn_addr_and_pool_builder(
         conn_addr: ConnectionAddr,
         pool_builder: Builder<Client>,
@@ -155,12 +236,31 @@ impl RedisDataSrc {
         }
     }
 
+    /// Creates a new `RedisDataSrc` with a `ConnectionInfo`.
+    ///
+    /// # Arguments
+    ///
+    /// * `conn_info` - A Redis `ConnectionInfo`.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisDataSrc`.
     pub fn with_conn_info(conn_info: ConnectionInfo) -> Self {
         Self {
             pool: Some(RedisPool::ConnInfoConfig(conn_info, Pool::builder())),
         }
     }
 
+    /// Creates a new `RedisDataSrc` with a `ConnectionInfo` and a custom pool builder.
+    ///
+    /// # Arguments
+    ///
+    /// * `conn_info` - A Redis `ConnectionInfo`.
+    /// * `pool_builder` - A `r2d2::Builder` for configuring the connection pool.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisDataSrc`.
     pub fn with_conn_info_and_pool_builder(
         conn_info: ConnectionInfo,
         pool_builder: Builder<Client>,
