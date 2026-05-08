@@ -14,17 +14,30 @@ use std::future::Future;
 use std::{mem, pin};
 use tokio::time;
 
+/// Errors related to Redis data source and connection for asynchronous Sentinel configuration.
 #[derive(Debug)]
 pub enum RedisErrorAsync {
+    /// Indicates that the data source is already setup.
     AlreadySetup,
+    /// Indicates that the data source is not yet setup.
     NotSetupYet,
-    FailToConnect { config: Config },
-    FailToBuildPool { config: Config },
+    /// Failed to connect to Redis.
+    FailToConnect {
+        /// The Redis configuration.
+        config: Config,
+    },
+    /// Failed to build a Redis connection pool.
+    FailToBuildPool {
+        /// The Redis configuration.
+        config: Config,
+    },
+    /// Failed to get a connection from the pool.
     FailToGetConnectionFromPool,
 }
 
 type BoxedFuture = pin::Pin<Box<dyn Future<Output = errs::Result<()>> + Send + 'static>>;
 
+/// A struct that holds a Redis connection and asynchronous transaction callbacks for Sentinel configuration.
 pub struct RedisDataConnAsync {
     conn: Connection,
     pre_commit_vec: Vec<BoxedFuture>,
@@ -42,10 +55,20 @@ impl RedisDataConnAsync {
         }
     }
 
+    /// Returns a mutable reference to the underlying Redis multiplexed connection.
+    ///
+    /// # Returns
+    ///
+    /// A mutable reference to the `redis::aio::MultiplexedConnection`.
     pub fn get_connection(&mut self) -> &mut MultiplexedConnection {
         &mut self.conn
     }
 
+    /// Adds an asynchronous callback function to be executed before a transaction is committed.
+    ///
+    /// # Arguments
+    ///
+    /// * `f` - A callback function that takes a `MultiplexedConnection` and returns a `Future`.
     pub async fn add_pre_commit_async<F, Fut>(&mut self, mut f: F)
     where
         F: FnMut(MultiplexedConnection) -> Fut,
@@ -55,6 +78,11 @@ impl RedisDataConnAsync {
         self.pre_commit_vec.push(Box::pin(fut))
     }
 
+    /// Adds an asynchronous callback function to be executed after a transaction is committed.
+    ///
+    /// # Arguments
+    ///
+    /// * `f` - A callback function that takes a `MultiplexedConnection` and returns a `Future`.
     pub async fn add_post_commit_async<F, Fut>(&mut self, mut f: F)
     where
         F: FnMut(MultiplexedConnection) -> Fut,
@@ -64,6 +92,11 @@ impl RedisDataConnAsync {
         self.post_commit_vec.push(Box::pin(fut))
     }
 
+    /// Adds an asynchronous callback function to be executed when a transaction is rolled back or forced back.
+    ///
+    /// # Arguments
+    ///
+    /// * `f` - A callback function that takes a `MultiplexedConnection` and returns a `Future`.
     pub async fn add_force_back_async<F, Fut>(&mut self, mut f: F)
     where
         F: FnMut(MultiplexedConnection) -> Fut,
@@ -118,6 +151,7 @@ impl DataConn for RedisDataConnAsync {
     }
 }
 
+/// A struct that manages an asynchronous Redis connection pool for Sentinel configuration.
 pub struct RedisDataSrcAsync {
     pool: Option<RedisPool>,
 }
@@ -128,6 +162,17 @@ enum RedisPool {
 }
 
 impl RedisDataSrcAsync {
+    /// Creates a new `RedisDataSrcAsync` with Sentinel address strings.
+    ///
+    /// # Arguments
+    ///
+    /// * `addrs` - An iterator of string slices that hold the Sentinel connection addresses.
+    /// * `master_name` - The service name of the Redis master.
+    /// * `server_type` - The type of Redis server (Master or Slave).
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisDataSrcAsync`.
     pub fn new<I, S>(addrs: I, master_name: S, server_type: SentinelServerType) -> Self
     where
         I: IntoIterator<Item: AsRef<str>>,
@@ -146,6 +191,18 @@ impl RedisDataSrcAsync {
         }
     }
 
+    /// Creates a new `RedisDataSrcAsync` with Sentinel address strings and pool configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `addrs` - An iterator of string slices that hold the Sentinel connection addresses.
+    /// * `master_name` - The service name of the Redis master.
+    /// * `server_type` - The type of Redis server (Master or Slave).
+    /// * `pool_config` - The configuration for the connection pool.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisDataSrcAsync`.
     pub fn with_pool_config<I, S>(
         addrs: I,
         master_name: S,
@@ -169,6 +226,15 @@ impl RedisDataSrcAsync {
         }
     }
 
+    /// Creates a new `RedisDataSrcAsync` with a `deadpool_redis::sentinel::Config`.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - A `deadpool_redis::sentinel::Config`.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisDataSrcAsync`.
     pub fn with_config(config: Config) -> Self {
         Self {
             pool: Some(RedisPool::Config(Box::new(config))),
