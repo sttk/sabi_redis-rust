@@ -10,31 +10,51 @@ use std::fmt::Debug;
 
 use crate::retry::Retry;
 
+/// Errors related to Redis Pub/Sub subscriber for Sentinel environment.
 #[derive(Debug)]
 pub enum RedisPubSubSubscriberError {
+    /// Indicates that the Sentinel configuration has already been used and cannot be reused.
     SentinelConfigAlreadyConsumed,
+    /// Failed to build a Sentinel client with the specified address strings.
     FailToBuildSentinelClientOfAddrs {
+        /// The Sentinel connection address strings.
         addrs: Vec<String>,
+        /// The service name of the Redis master.
         service_name: String,
+        /// The type of Redis server (Master or Slave).
         server_type: SentinelServerType,
     },
+    /// Failed to build a Sentinel client with the specified `ConnectionAddr`s.
     FailToBuildSentinelClientOfConnAddrs {
+        /// The Sentinel `ConnectionAddr`s.
         conn_addrs: Vec<ConnectionAddr>,
+        /// The service name of the Redis master.
         service_name: String,
+        /// The type of Redis server (Master or Slave).
         server_type: SentinelServerType,
     },
+    /// Failed to build a Sentinel client with the specified `ConnectionInfo`s.
     FailToBuildSentinelClientOfConnInfos {
+        /// The Sentinel `ConnectionInfo`s.
         conn_infos: Vec<ConnectionInfo>,
+        /// The service name of the Redis master.
         service_name: String,
+        /// The type of Redis server (Master or Slave).
         server_type: SentinelServerType,
     },
+    /// Failed to build a Sentinel client with the specified `SentinelClientBuilder`.
     FailToBuildSentinelClientWithClientBuilder,
+    /// Failed to get a connection from the client.
     FailToGetConnection,
+    /// Failed to subscribe to the specified channels.
     FailToSubscribeToChannels,
+    /// Failed to subscribe to the specified patterns.
     FailToSubscribeToChannelsWithPatterns,
+    /// Failed to receive a message from the subscriber.
     FailToGetMessage,
 }
 
+/// A struct for subscribing to Redis channels and receiving messages for Sentinel environment.
 pub struct RedisPubSubSubscriber<A>
 where
     A: ToRedisArgs,
@@ -63,6 +83,17 @@ impl<A> RedisPubSubSubscriber<A>
 where
     A: ToRedisArgs,
 {
+    /// Creates a new `RedisPubSubSubscriber` with Sentinel address strings.
+    ///
+    /// # Arguments
+    ///
+    /// * `addrs` - An iterator of string slices that hold the Sentinel connection addresses.
+    /// * `service_name` - The service name of the Redis master.
+    /// * `server_type` - The type of Redis server (Master or Slave).
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisPubSubSubscriber`.
     pub fn new<I, S>(addrs: I, service_name: S, server_type: SentinelServerType) -> Self
     where
         I: IntoIterator<Item: AsRef<str>>,
@@ -81,6 +112,18 @@ where
         }
     }
 
+    /// Creates a new `RedisPubSubSubscriber` with Sentinel address strings and node connection info.
+    ///
+    /// # Arguments
+    ///
+    /// * `addrs` - An iterator of string slices that hold the Sentinel connection addresses.
+    /// * `service_name` - The service name of the Redis master.
+    /// * `server_type` - The type of Redis server (Master or Slave).
+    /// * `node_conn_info` - The connection info for the Redis node.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisPubSubSubscriber`.
     pub fn with_node_conn_info<I, S>(
         addrs: I,
         service_name: S,
@@ -104,6 +147,17 @@ where
         }
     }
 
+    /// Creates a new `RedisPubSubSubscriber` with Sentinel `ConnectionAddr`s.
+    ///
+    /// # Arguments
+    ///
+    /// * `conn_addrs` - An iterator of `ConnectionAddr`s.
+    /// * `service_name` - The service name of the Redis master.
+    /// * `server_type` - The type of Redis server (Master or Slave).
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisPubSubSubscriber`.
     pub fn with_conn_addrs<I, S>(
         conn_addrs: I,
         service_name: S,
@@ -126,6 +180,18 @@ where
         }
     }
 
+    /// Creates a new `RedisPubSubSubscriber` with Sentinel `ConnectionAddr`s and node connection info.
+    ///
+    /// # Arguments
+    ///
+    /// * `conn_addrs` - An iterator of `ConnectionAddr`s.
+    /// * `service_name` - The service name of the Redis master.
+    /// * `server_type` - The type of Redis server (Master or Slave).
+    /// * `node_conn_info` - The connection info for the Redis node.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisPubSubSubscriber`.
     pub fn with_conn_addrs_and_node_conn_info<I, S>(
         conn_addrs: I,
         service_name: S,
@@ -149,6 +215,17 @@ where
         }
     }
 
+    /// Creates a new `RedisPubSubSubscriber` with Sentinel `ConnectionInfo`s.
+    ///
+    /// # Arguments
+    ///
+    /// * `conn_infos` - An iterator of `ConnectionInfo`s.
+    /// * `service_name` - The service name of the Redis master.
+    /// * `server_type` - The type of Redis server (Master or Slave).
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisPubSubSubscriber`.
     pub fn with_conn_infos<I, S>(
         conn_infos: I,
         service_name: S,
@@ -171,6 +248,18 @@ where
         }
     }
 
+    /// Creates a new `RedisPubSubSubscriber` with Sentinel `ConnectionInfo`s and node connection info.
+    ///
+    /// # Arguments
+    ///
+    /// * `conn_infos` - An iterator of `ConnectionInfo`s.
+    /// * `service_name` - The service name of the Redis master.
+    /// * `server_type` - The type of Redis server (Master or Slave).
+    /// * `node_conn_info` - The connection info for the Redis node.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisPubSubSubscriber`.
     pub fn with_conn_infos_and_node_conn_info<I, S>(
         conn_infos: I,
         service_name: S,
@@ -194,6 +283,15 @@ where
         }
     }
 
+    /// Creates a new `RedisPubSubSubscriber` with a `SentinelClientBuilder`.
+    ///
+    /// # Arguments
+    ///
+    /// * `client_builder` - A `redis::sentinel::SentinelClientBuilder`.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisPubSubSubscriber`.
     pub fn with_client_builder(client_builder: SentinelClientBuilder) -> Self {
         Self {
             config: Some(SentinelConfig::ClientBuilder(Box::new(client_builder))),
@@ -203,18 +301,46 @@ where
         }
     }
 
+    /// Sets the retry configuration for the subscriber.
+    ///
+    /// # Arguments
+    ///
+    /// * `max_count` - The maximum number of retry attempts.
+    /// * `init_delay_ms` - The initial delay between retries in milliseconds.
+    /// * `max_delay_ms` - The maximum delay between retries in milliseconds.
     pub fn set_retry(&mut self, max_count: u32, init_delay_ms: u64, max_delay_ms: u64) {
         self.retry = Retry::with_params(max_count, init_delay_ms, max_delay_ms);
     }
 
+    /// Adds a channel to subscribe to.
+    ///
+    /// # Arguments
+    ///
+    /// * `channel` - The channel to subscribe to.
     pub fn subscribe(&mut self, channel: A) {
         self.channels.push(channel);
     }
 
+    /// Adds a pattern to subscribe to.
+    ///
+    /// # Arguments
+    ///
+    /// * `pattern` - The pattern to subscribe to.
     pub fn psubscribe(&mut self, pattern: A) {
         self.patterns.push(pattern);
     }
 
+    /// Starts receiving messages and calls the provided callback for each message.
+    ///
+    /// This method blocks until the callback returns `ControlFlow::Break`.
+    ///
+    /// # Arguments
+    ///
+    /// * `f` - A callback function that takes a `redis::Msg` and returns a `redis::ControlFlow`.
+    ///
+    /// # Returns
+    ///
+    /// A result containing the value returned by `ControlFlow::Break`, or an error.
     pub fn receive<F, U>(mut self, mut f: F) -> errs::Result<U>
     where
         F: FnMut(Msg) -> ControlFlow<U>,
