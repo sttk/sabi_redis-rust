@@ -142,18 +142,18 @@ where
     ///
     /// # Arguments
     ///
-    /// * `channels` - The channel to subscribe to.
-    pub fn subscribe(&mut self, channels: A) {
-        self.channels.push(channels);
+    /// * `channel` - The channel to subscribe to.
+    pub fn subscribe(&mut self, channel: A) {
+        self.channels.push(channel);
     }
 
     /// Adds a pattern to subscribe to.
     ///
     /// # Arguments
     ///
-    /// * `patterns` - The pattern to subscribe to.
-    pub fn psubscribe(&mut self, patterns: A) {
-        self.patterns.push(patterns);
+    /// * `pattern` - The pattern to subscribe to.
+    pub fn psubscribe(&mut self, pattern: A) {
+        self.patterns.push(pattern);
     }
 
     /// Starts receiving messages and calls the provided callback for each message.
