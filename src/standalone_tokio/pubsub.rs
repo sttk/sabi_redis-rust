@@ -8,18 +8,49 @@ use redis::aio::PubSub;
 use redis::{Client, ConnectionAddr, ConnectionInfo, ControlFlow, Msg, ToRedisArgs};
 use std::fmt::Debug;
 
+/// Errors related to asynchronous Redis Pub/Sub subscriber for standalone environment.
 #[derive(Debug)]
 pub enum RedisPubSubSubscriberErrorAsync {
+    /// Indicates that the connection address has already been used and cannot be reused.
     AddressAlreadyConsumed,
-    FailToOpenClientOfAddr { addr: String },
-    FailToOpenClientOfConnAddr { conn_addr: ConnectionAddr },
-    FailToOpenClientOfConnInfo { conn_info: ConnectionInfo },
-    FailToGetAsyncPubSub { conn_info: ConnectionInfo },
-    FailToSubscribeToChannels { conn_info: ConnectionInfo },
-    FailToSubscribeToChannelsWithPatterns { conn_info: ConnectionInfo },
-    FailToGetMessage { conn_info: ConnectionInfo },
+    /// Failed to open a Redis client with the specified address string.
+    FailToOpenClientOfAddr {
+        /// The Redis connection address string.
+        addr: String,
+    },
+    /// Failed to open a Redis client with the specified `ConnectionAddr`.
+    FailToOpenClientOfConnAddr {
+        /// The Redis `ConnectionAddr`.
+        conn_addr: ConnectionAddr,
+    },
+    /// Failed to open a Redis client with the specified `ConnectionInfo`.
+    FailToOpenClientOfConnInfo {
+        /// The Redis `ConnectionInfo`.
+        conn_info: ConnectionInfo,
+    },
+    /// Failed to get an asynchronous Pub/Sub connection from the client.
+    FailToGetAsyncPubSub {
+        /// The Redis `ConnectionInfo`.
+        conn_info: ConnectionInfo,
+    },
+    /// Failed to subscribe to the specified channels.
+    FailToSubscribeToChannels {
+        /// The Redis `ConnectionInfo`.
+        conn_info: ConnectionInfo,
+    },
+    /// Failed to subscribe to the specified patterns.
+    FailToSubscribeToChannelsWithPatterns {
+        /// The Redis `ConnectionInfo`.
+        conn_info: ConnectionInfo,
+    },
+    /// Failed to receive a message from the subscriber.
+    FailToGetMessage {
+        /// The Redis `ConnectionInfo`.
+        conn_info: ConnectionInfo,
+    },
 }
 
+/// A struct for subscribing to Redis channels and receiving messages asynchronously for standalone environment.
 pub struct RedisPubSubSubscriberAsync<A>
 where
     A: ToRedisArgs,
@@ -40,6 +71,15 @@ impl<A> RedisPubSubSubscriberAsync<A>
 where
     A: ToRedisArgs,
 {
+    /// Creates a new `RedisPubSubSubscriberAsync` with a connection address string.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - A string slice that holds the Redis connection address.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisPubSubSubscriberAsync`.
     pub fn new<S>(addr: S) -> Self
     where
         S: AsRef<str>,
@@ -52,6 +92,15 @@ where
         }
     }
 
+    /// Creates a new `RedisPubSubSubscriberAsync` with a `ConnectionAddr`.
+    ///
+    /// # Arguments
+    ///
+    /// * `conn_addr` - A Redis `ConnectionAddr`.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisPubSubSubscriberAsync`.
     pub fn with_conn_addr(conn_addr: ConnectionAddr) -> Self {
         Self {
             addr: Some(RedisConfig::ConnAddr(conn_addr)),
@@ -61,6 +110,15 @@ where
         }
     }
 
+    /// Creates a new `RedisPubSubSubscriberAsync` with a `ConnectionInfo`.
+    ///
+    /// # Arguments
+    ///
+    /// * `conn_info` - A Redis `ConnectionInfo`.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisPubSubSubscriberAsync`.
     pub fn with_conn_info(conn_info: ConnectionInfo) -> Self {
         Self {
             addr: Some(RedisConfig::ConnInfo(conn_info)),
@@ -70,18 +128,46 @@ where
         }
     }
 
+    /// Sets the retry configuration for the subscriber.
+    ///
+    /// # Arguments
+    ///
+    /// * `max_count` - The maximum number of retry attempts.
+    /// * `init_delay_ms` - The initial delay between retries in milliseconds.
+    /// * `max_delay_ms` - The maximum delay between retries in milliseconds.
     pub fn set_retry(&mut self, max_count: u32, init_delay_ms: u64, max_delay_ms: u64) {
         self.retry = RetryAsync::with_params(max_count, init_delay_ms, max_delay_ms);
     }
 
+    /// Adds a channel to subscribe to.
+    ///
+    /// # Arguments
+    ///
+    /// * `channels` - The channel to subscribe to.
     pub fn subscribe(&mut self, channel: A) {
         self.channels.push(channel);
     }
 
+    /// Adds a pattern to subscribe to.
+    ///
+    /// # Arguments
+    ///
+    /// * `patterns` - The pattern to subscribe to.
     pub fn psubscribe(&mut self, pattern: A) {
         self.patterns.push(pattern);
     }
 
+    /// Starts receiving messages asynchronously and calls the provided callback for each message.
+    ///
+    /// This method continues until the callback returns `ControlFlow::Break`.
+    ///
+    /// # Arguments
+    ///
+    /// * `f` - A callback function that takes a `redis::Msg` and returns a `Future` that resolves to a `redis::ControlFlow`.
+    ///
+    /// # Returns
+    ///
+    /// A result containing the value returned by `ControlFlow::Break`, or an error.
     pub async fn receive_async<F, Fut, U>(mut self, mut f: F) -> errs::Result<U>
     where
         F: FnMut(Msg) -> Fut,
