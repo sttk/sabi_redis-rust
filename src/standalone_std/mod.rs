@@ -44,7 +44,7 @@ pub enum RedisError {
 }
 
 /// A struct that holds a pooled Redis connection and transaction callbacks for standalone
-/// environment.
+/// configuration.
 #[allow(clippy::type_complexity)]
 pub struct RedisDataConn {
     conn: PooledConnection<Client>,
