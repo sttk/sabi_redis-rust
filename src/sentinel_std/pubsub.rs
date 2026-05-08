@@ -207,12 +207,12 @@ where
         self.retry = Retry::with_params(max_count, init_delay_ms, max_delay_ms);
     }
 
-    pub fn subscribe(&mut self, channels: A) {
-        self.channels.push(channels);
+    pub fn subscribe(&mut self, channel: A) {
+        self.channels.push(channel);
     }
 
-    pub fn psubscribe(&mut self, patterns: A) {
-        self.patterns.push(patterns);
+    pub fn psubscribe(&mut self, pattern: A) {
+        self.patterns.push(pattern);
     }
 
     pub fn receive<F, U>(mut self, mut f: F) -> errs::Result<U>
