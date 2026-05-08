@@ -16,45 +16,76 @@ use sabi::{AsyncGroup, DataConn, DataSrc};
 use std::fmt::Debug;
 use std::mem;
 
+/// Errors related to Redis data source and connection for Sentinel environment.
 #[derive(Debug)]
 pub enum RedisError {
+    /// Indicates that the data source is not yet setup.
     NotSetupYet,
+    /// Indicates that the data source is already setup.
     AlreadySetup,
+    /// Failed to build a Sentinel client with the specified address strings.
     FailToBuildSentinelClientOfAddrs {
+        /// The Sentinel connection address strings.
         addrs: Vec<String>,
+        /// The service name of the Redis master.
         service_name: String,
+        /// The type of Redis server (Master or Slave).
         server_type: SentinelServerType,
     },
+    /// Failed to build a connection pool with the specified address strings.
     FailToBuildPoolOfAddrs {
+        /// The Sentinel connection address strings.
         addrs: Vec<String>,
+        /// The service name of the Redis master.
         service_name: String,
+        /// The type of Redis server (Master or Slave).
         server_type: SentinelServerType,
     },
+    /// Failed to build a Sentinel client with the specified `ConnectionAddr`s.
     FailToBuildSentinelClientOfConnAddrs {
+        /// The Sentinel `ConnectionAddr`s.
         conn_addrs: Vec<ConnectionAddr>,
+        /// The service name of the Redis master.
         service_name: String,
+        /// The type of Redis server (Master or Slave).
         server_type: SentinelServerType,
     },
+    /// Failed to build a Sentinel client with the specified `SentinelClientBuilder`.
     FailToBuildSentinelClientWithClientBuilder,
+    /// Failed to build a connection pool with the specified `ConnectionAddr`s.
     FailToBuildPoolOfConnAddrs {
+        /// The Sentinel `ConnectionAddr`s.
         conn_addrs: Vec<ConnectionAddr>,
+        /// The service name of the Redis master.
         service_name: String,
+        /// The type of Redis server (Master or Slave).
         server_type: SentinelServerType,
     },
+    /// Failed to build a Sentinel client with the specified `ConnectionInfo`s.
     FailToBuildSentinelClientOfConnInfos {
+        /// The Sentinel `ConnectionInfo`s.
         conn_infos: Vec<ConnectionInfo>,
+        /// The service name of the Redis master.
         service_name: String,
+        /// The type of Redis server (Master or Slave).
         server_type: SentinelServerType,
     },
+    /// Failed to build a connection pool with the specified `ConnectionInfo`s.
     FailToBuildPoolOfConnInfos {
+        /// The Sentinel `ConnectionInfo`s.
         conn_infos: Vec<ConnectionInfo>,
+        /// The service name of the Redis master.
         service_name: String,
+        /// The type of Redis server (Master or Slave).
         server_type: SentinelServerType,
     },
+    /// Failed to build a connection pool with the specified `SentinelClientBuilder`.
     FailToBuildPoolWithClientBuilder,
+    /// Failed to get a connection from the pool.
     FailToGetConnectionFromPool,
 }
 
+/// A struct that holds a pooled Redis connection and transaction callbacks for Sentinel environment.
 #[allow(clippy::type_complexity)]
 pub struct RedisDataConn {
     conn: PooledConnection<LockedSentinelClient>,
@@ -73,10 +104,20 @@ impl RedisDataConn {
         }
     }
 
+    /// Returns a mutable reference to the underlying pooled Redis connection.
+    ///
+    /// # Returns
+    ///
+    /// A mutable reference to the `r2d2::PooledConnection<LockedSentinelClient>`.
     pub fn get_connection(&mut self) -> &mut PooledConnection<LockedSentinelClient> {
         &mut self.conn
     }
 
+    /// Adds a callback function to be executed before a transaction is committed.
+    ///
+    /// # Arguments
+    ///
+    /// * `f` - A callback function that takes a mutable reference to the Redis connection.
     pub fn add_pre_commit<F>(&mut self, f: F)
     where
         F: FnMut(&mut Connection) -> errs::Result<()> + 'static,
@@ -84,6 +125,11 @@ impl RedisDataConn {
         self.pre_commit_vec.push(Box::new(f));
     }
 
+    /// Adds a callback function to be executed after a transaction is committed.
+    ///
+    /// # Arguments
+    ///
+    /// * `f` - A callback function that takes a mutable reference to the Redis connection.
     pub fn add_post_commit<F>(&mut self, f: F)
     where
         F: FnMut(&mut Connection) -> errs::Result<()> + 'static,
@@ -91,6 +137,11 @@ impl RedisDataConn {
         self.post_commit_vec.push(Box::new(f));
     }
 
+    /// Adds a callback function to be executed when a transaction is rolled back or forced back.
+    ///
+    /// # Arguments
+    ///
+    /// * `f` - A callback function that takes a mutable reference to the Redis connection.
     pub fn add_force_back<F>(&mut self, f: F)
     where
         F: FnMut(&mut Connection) -> errs::Result<()> + 'static,
@@ -136,6 +187,7 @@ impl DataConn for RedisDataConn {
     fn close(&mut self) {}
 }
 
+/// A struct that manages a Redis Sentinel connection pool for Sentinel environment.
 pub struct RedisDataSrc {
     pool: Option<RedisPool>,
 }
@@ -156,6 +208,17 @@ struct RedisConfig<T> {
 }
 
 impl RedisDataSrc {
+    /// Creates a new `RedisDataSrc` with Sentinel address strings.
+    ///
+    /// # Arguments
+    ///
+    /// * `addrs` - An iterator of string slices that hold the Sentinel connection addresses.
+    /// * `service_name` - The service name of the Redis master.
+    /// * `server_type` - The type of Redis server (Master or Slave).
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisDataSrc`.
     pub fn new<I, S>(addrs: I, service_name: S, server_type: SentinelServerType) -> Self
     where
         I: IntoIterator<Item: AsRef<str>>,
@@ -174,6 +237,18 @@ impl RedisDataSrc {
         }
     }
 
+    /// Creates a new `RedisDataSrc` with Sentinel address strings and node connection info.
+    ///
+    /// # Arguments
+    ///
+    /// * `addrs` - An iterator of string slices that hold the Sentinel connection addresses.
+    /// * `service_name` - The service name of the Redis master.
+    /// * `server_type` - The type of Redis server (Master or Slave).
+    /// * `node_conn_info` - The connection info for the Redis node.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisDataSrc`.
     pub fn with_node_conn_info<I, S>(
         addrs: I,
         service_name: S,
@@ -197,6 +272,18 @@ impl RedisDataSrc {
         }
     }
 
+    /// Creates a new `RedisDataSrc` with Sentinel address strings and a custom pool builder.
+    ///
+    /// # Arguments
+    ///
+    /// * `addrs` - An iterator of string slices that hold the Sentinel connection addresses.
+    /// * `service_name` - The service name of the Redis master.
+    /// * `server_type` - The type of Redis server (Master or Slave).
+    /// * `pool_builder` - A `r2d2::Builder` for configuring the connection pool.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisDataSrc`.
     pub fn with_pool_builder<I, S>(
         addrs: I,
         service_name: S,
@@ -220,6 +307,19 @@ impl RedisDataSrc {
         }
     }
 
+    /// Creates a new `RedisDataSrc` with Sentinel address strings, node connection info, and a custom pool builder.
+    ///
+    /// # Arguments
+    ///
+    /// * `addrs` - An iterator of string slices that hold the Sentinel connection addresses.
+    /// * `service_name` - The service name of the Redis master.
+    /// * `server_type` - The type of Redis server (Master or Slave).
+    /// * `node_conn_info` - The connection info for the Redis node.
+    /// * `pool_builder` - A `r2d2::Builder` for configuring the connection pool.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisDataSrc`.
     pub fn with_node_conn_info_and_pool_builder<I, S>(
         addrs: I,
         service_name: S,
@@ -244,6 +344,17 @@ impl RedisDataSrc {
         }
     }
 
+    /// Creates a new `RedisDataSrc` with Sentinel `ConnectionAddr`s.
+    ///
+    /// # Arguments
+    ///
+    /// * `conn_addrs` - An iterator of `ConnectionAddr`s.
+    /// * `service_name` - The service name of the Redis master.
+    /// * `server_type` - The type of Redis server (Master or Slave).
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisDataSrc`.
     pub fn with_conn_addrs<I, S>(
         conn_addrs: I,
         service_name: S,
@@ -266,6 +377,18 @@ impl RedisDataSrc {
         }
     }
 
+    /// Creates a new `RedisDataSrc` with Sentinel `ConnectionAddr`s and node connection info.
+    ///
+    /// # Arguments
+    ///
+    /// * `conn_addrs` - An iterator of `ConnectionAddr`s.
+    /// * `service_name` - The service name of the Redis master.
+    /// * `server_type` - The type of Redis server (Master or Slave).
+    /// * `node_conn_info` - The connection info for the Redis node.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisDataSrc`.
     pub fn with_conn_addrs_and_node_conn_info<I, S>(
         conn_addrs: I,
         service_name: S,
@@ -289,6 +412,18 @@ impl RedisDataSrc {
         }
     }
 
+    /// Creates a new `RedisDataSrc` with Sentinel `ConnectionAddr`s and a custom pool builder.
+    ///
+    /// # Arguments
+    ///
+    /// * `conn_addrs` - An iterator of `ConnectionAddr`s.
+    /// * `service_name` - The service name of the Redis master.
+    /// * `server_type` - The type of Redis server (Master or Slave).
+    /// * `pool_builder` - A `r2d2::Builder` for configuring the connection pool.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisDataSrc`.
     pub fn with_conn_addrs_and_pool_builder<I, S>(
         conn_addrs: I,
         service_name: S,
@@ -312,6 +447,19 @@ impl RedisDataSrc {
         }
     }
 
+    /// Creates a new `RedisDataSrc` with Sentinel `ConnectionAddr`s, node connection info, and a custom pool builder.
+    ///
+    /// # Arguments
+    ///
+    /// * `conn_addrs` - An iterator of `ConnectionAddr`s.
+    /// * `service_name` - The service name of the Redis master.
+    /// * `server_type` - The type of Redis server (Master or Slave).
+    /// * `node_conn_info` - The connection info for the Redis node.
+    /// * `pool_builder` - A `r2d2::Builder` for configuring the connection pool.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisDataSrc`.
     pub fn with_conn_addrs_and_node_conn_info_and_pool_builder<I, S>(
         conn_addrs: I,
         service_name: S,
@@ -336,6 +484,17 @@ impl RedisDataSrc {
         }
     }
 
+    /// Creates a new `RedisDataSrc` with Sentinel `ConnectionInfo`s.
+    ///
+    /// # Arguments
+    ///
+    /// * `conn_infos` - An iterator of `ConnectionInfo`s.
+    /// * `service_name` - The service name of the Redis master.
+    /// * `server_type` - The type of Redis server (Master or Slave).
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisDataSrc`.
     pub fn with_conn_infos<I, S>(
         conn_infos: I,
         service_name: S,
@@ -358,6 +517,18 @@ impl RedisDataSrc {
         }
     }
 
+    /// Creates a new `RedisDataSrc` with Sentinel `ConnectionInfo`s and node connection info.
+    ///
+    /// # Arguments
+    ///
+    /// * `conn_infos` - An iterator of `ConnectionInfo`s.
+    /// * `service_name` - The service name of the Redis master.
+    /// * `server_type` - The type of Redis server (Master or Slave).
+    /// * `node_conn_info` - The connection info for the Redis node.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisDataSrc`.
     pub fn with_conn_infos_and_node_conn_info<I, S>(
         conn_infos: I,
         service_name: S,
@@ -381,6 +552,18 @@ impl RedisDataSrc {
         }
     }
 
+    /// Creates a new `RedisDataSrc` with Sentinel `ConnectionInfo`s and a custom pool builder.
+    ///
+    /// # Arguments
+    ///
+    /// * `conn_infos` - An iterator of `ConnectionInfo`s.
+    /// * `service_name` - The service name of the Redis master.
+    /// * `server_type` - The type of Redis server (Master or Slave).
+    /// * `pool_builder` - A `r2d2::Builder` for configuring the connection pool.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisDataSrc`.
     pub fn with_conn_infos_and_pool_builder<I, S>(
         conn_infos: I,
         service_name: S,
@@ -404,6 +587,19 @@ impl RedisDataSrc {
         }
     }
 
+    /// Creates a new `RedisDataSrc` with Sentinel `ConnectionInfo`s, node connection info, and a custom pool builder.
+    ///
+    /// # Arguments
+    ///
+    /// * `conn_infos` - An iterator of `ConnectionInfo`s.
+    /// * `service_name` - The service name of the Redis master.
+    /// * `server_type` - The type of Redis server (Master or Slave).
+    /// * `node_conn_info` - The connection info for the Redis node.
+    /// * `pool_builder` - A `r2d2::Builder` for configuring the connection pool.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisDataSrc`.
     pub fn with_conn_infos_and_node_conn_info_and_pool_builder<I, S>(
         conn_infos: I,
         service_name: S,
@@ -428,6 +624,15 @@ impl RedisDataSrc {
         }
     }
 
+    /// Creates a new `RedisDataSrc` with a `SentinelClientBuilder`.
+    ///
+    /// # Arguments
+    ///
+    /// * `client_builder` - A `redis::sentinel::SentinelClientBuilder`.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisDataSrc`.
     pub fn with_client_builder(client_builder: SentinelClientBuilder) -> Self {
         Self {
             pool: Some(RedisPool::ClientBuilderConfig(Box::new((
@@ -437,6 +642,16 @@ impl RedisDataSrc {
         }
     }
 
+    /// Creates a new `RedisDataSrc` with a `SentinelClientBuilder` and a custom pool builder.
+    ///
+    /// # Arguments
+    ///
+    /// * `client_builder` - A `redis::sentinel::SentinelClientBuilder`.
+    /// * `pool_builder` - A `r2d2::Builder` for configuring the connection pool.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisDataSrc`.
     pub fn with_client_builder_and_pool_builder(
         client_builder: SentinelClientBuilder,
         pool_builder: Builder<LockedSentinelClient>,
