@@ -7,7 +7,7 @@ use std::fmt::Debug;
 
 use crate::retry::Retry;
 
-/// Errors related to Redis Pub/Sub subscriber for standalone environment.
+/// Errors related to Redis Pub/Sub subscriber for standalone configuration.
 #[derive(Debug)]
 pub enum RedisPubSubSubscriberError {
     /// Indicates that the connection address has already been used and cannot be reused.
@@ -49,7 +49,7 @@ pub enum RedisPubSubSubscriberError {
     },
 }
 
-/// A struct for subscribing to Redis channels and receiving messages for standalone environment.
+/// A struct for subscribing to Redis channels and receiving messages for standalone configuration.
 pub struct RedisPubSubSubscriber<A>
 where
     A: ToRedisArgs,

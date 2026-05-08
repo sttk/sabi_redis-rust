@@ -12,7 +12,7 @@ use sabi::tokio::{AsyncGroup, DataConn, DataSrc};
 use std::future::Future;
 use std::{mem, pin, time};
 
-/// Errors related to Redis data source and connection for asynchronous standalone environment.
+/// Errors related to Redis data source and connection for asynchronous standalone configuration.
 #[derive(Debug)]
 pub enum RedisErrorAsync {
     /// Indicates that the data source is not yet setup.
@@ -35,7 +35,7 @@ pub enum RedisErrorAsync {
 
 type BoxedFuture = pin::Pin<Box<dyn Future<Output = errs::Result<()>> + Send + 'static>>;
 
-/// A struct that holds a Redis connection and asynchronous transaction callbacks for standalone environment.
+/// A struct that holds a Redis connection and asynchronous transaction callbacks for standalone configuration.
 pub struct RedisDataConnAsync {
     conn: Connection,
     pre_commit_vec: Vec<BoxedFuture>,
@@ -149,7 +149,7 @@ impl DataConn for RedisDataConnAsync {
     }
 }
 
-/// A struct that manages an asynchronous Redis connection pool for standalone environment.
+/// A struct that manages an asynchronous Redis connection pool for standalone configuration.
 pub struct RedisDataSrcAsync {
     pool: Option<RedisPool>,
 }

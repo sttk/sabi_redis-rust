@@ -10,7 +10,7 @@ use std::fmt::Debug;
 
 use crate::retry::Retry;
 
-/// Errors related to Redis Pub/Sub subscriber for Sentinel environment.
+/// Errors related to Redis Pub/Sub subscriber for Sentinel configuration.
 #[derive(Debug)]
 pub enum RedisPubSubSubscriberError {
     /// Indicates that the Sentinel configuration has already been used and cannot be reused.
@@ -54,7 +54,7 @@ pub enum RedisPubSubSubscriberError {
     FailToGetMessage,
 }
 
-/// A struct for subscribing to Redis channels and receiving messages for Sentinel environment.
+/// A struct for subscribing to Redis channels and receiving messages for Sentinel configuration.
 pub struct RedisPubSubSubscriber<A>
 where
     A: ToRedisArgs,

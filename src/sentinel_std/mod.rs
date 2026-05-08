@@ -16,7 +16,7 @@ use sabi::{AsyncGroup, DataConn, DataSrc};
 use std::fmt::Debug;
 use std::mem;
 
-/// Errors related to Redis data source and connection for Sentinel environment.
+/// Errors related to Redis data source and connection for Sentinel configuration.
 #[derive(Debug)]
 pub enum RedisError {
     /// Indicates that the data source is not yet setup.
@@ -85,7 +85,7 @@ pub enum RedisError {
     FailToGetConnectionFromPool,
 }
 
-/// A struct that holds a pooled Redis connection and transaction callbacks for Sentinel environment.
+/// A struct that holds a pooled Redis connection and transaction callbacks for Sentinel configuration.
 #[allow(clippy::type_complexity)]
 pub struct RedisDataConn {
     conn: PooledConnection<LockedSentinelClient>,
@@ -187,7 +187,7 @@ impl DataConn for RedisDataConn {
     fn close(&mut self) {}
 }
 
-/// A struct that manages a Redis Sentinel connection pool for Sentinel environment.
+/// A struct that manages a Redis Sentinel connection pool for Sentinel configuration.
 pub struct RedisDataSrc {
     pool: Option<RedisPool>,
 }
