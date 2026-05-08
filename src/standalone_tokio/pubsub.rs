@@ -8,7 +8,7 @@ use redis::aio::PubSub;
 use redis::{Client, ConnectionAddr, ConnectionInfo, ControlFlow, Msg, ToRedisArgs};
 use std::fmt::Debug;
 
-/// Errors related to asynchronous Redis Pub/Sub subscriber for standalone environment.
+/// Errors related to asynchronous Redis Pub/Sub subscriber for standalone configuration.
 #[derive(Debug)]
 pub enum RedisPubSubSubscriberErrorAsync {
     /// Indicates that the connection address has already been used and cannot be reused.
@@ -50,7 +50,7 @@ pub enum RedisPubSubSubscriberErrorAsync {
     },
 }
 
-/// A struct for subscribing to Redis channels and receiving messages asynchronously for standalone environment.
+/// A struct for subscribing to Redis channels and receiving messages asynchronously for standalone configuration.
 pub struct RedisPubSubSubscriberAsync<A>
 where
     A: ToRedisArgs,

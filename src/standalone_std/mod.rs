@@ -12,7 +12,7 @@ use sabi::{AsyncGroup, DataConn, DataSrc};
 use std::fmt::Debug;
 use std::mem;
 
-/// Errors related to Redis data source and connection for standalone environment.
+/// Errors related to Redis data source and connection for standalone configuration.
 #[derive(Debug)]
 pub enum RedisError {
     /// Indicates that the data source is not yet setup.
@@ -44,7 +44,7 @@ pub enum RedisError {
 }
 
 /// A struct that holds a pooled Redis connection and transaction callbacks for standalone
-/// environment.
+/// configuration.
 #[allow(clippy::type_complexity)]
 pub struct RedisDataConn {
     conn: PooledConnection<Client>,
@@ -146,7 +146,7 @@ impl DataConn for RedisDataConn {
     fn close(&mut self) {}
 }
 
-/// A struct that manages a Redis connection pool for standalone environment.
+/// A struct that manages a Redis connection pool for standalone configuration.
 pub struct RedisDataSrc {
     pool: Option<RedisPool>,
 }
