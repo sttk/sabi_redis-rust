@@ -10,18 +10,40 @@ use std::fmt::Debug;
 
 use crate::retry::Retry;
 
+/// Errors related to Redis Pub/Sub subscriber for cluster configuration.
 #[derive(Debug)]
 pub enum RedisPubSubSubscriberError {
+    /// Indicates that the cluster configuration has already been used and cannot be reused.
     ClusterConfigAlreadyConsumed,
-    InvalidAddrs { addrs: Vec<String> },
-    InvalidConnAddrs { conn_addrs: Vec<ConnectionAddr> },
-    FailToOpenClient { conn_info: ConnectionInfo },
-    FailToGetConnection { conn_info: ConnectionInfo },
+    /// The specified address strings are invalid.
+    InvalidAddrs {
+        /// The invalid address strings.
+        addrs: Vec<String>,
+    },
+    /// The specified `ConnectionAddr`s are invalid.
+    InvalidConnAddrs {
+        /// The invalid `ConnectionAddr`s.
+        conn_addrs: Vec<ConnectionAddr>,
+    },
+    /// Failed to open a Redis client.
+    FailToOpenClient {
+        /// The Redis `ConnectionInfo`.
+        conn_info: ConnectionInfo,
+    },
+    /// Failed to get a connection from the client.
+    FailToGetConnection {
+        /// The Redis `ConnectionInfo`.
+        conn_info: ConnectionInfo,
+    },
+    /// Failed to subscribe to the specified channels.
     FailToSubscribeToChannels,
+    /// Failed to subscribe to the specified patterns.
     FailToSubscribeToChannelsWithPatterns,
+    /// Failed to receive a message from the subscriber.
     FailToGetMessage,
 }
 
+/// A struct for subscribing to Redis channels and receiving messages for cluster configuration.
 pub struct RedisPubSubSubscriber<A>
 where
     A: ToRedisArgs,
@@ -42,6 +64,15 @@ impl<A> RedisPubSubSubscriber<A>
 where
     A: ToRedisArgs,
 {
+    /// Creates a new `RedisPubSubSubscriber` with cluster node address strings.
+    ///
+    /// # Arguments
+    ///
+    /// * `addrs` - An iterator of string slices that hold the cluster node addresses.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisPubSubSubscriber`.
     pub fn new<I>(addrs: I) -> Self
     where
         I: IntoIterator<Item: AsRef<str>>,
@@ -56,6 +87,15 @@ where
         }
     }
 
+    /// Creates a new `RedisPubSubSubscriber` with cluster node `ConnectionAddr`s.
+    ///
+    /// # Arguments
+    ///
+    /// * `conn_addrs` - An iterator of `ConnectionAddr`s.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisPubSubSubscriber`.
     pub fn with_conn_addrs<I>(conn_addrs: I) -> Self
     where
         I: IntoIterator<Item = ConnectionAddr>,
@@ -68,6 +108,15 @@ where
         }
     }
 
+    /// Creates a new `RedisPubSubSubscriber` with cluster node `ConnectionInfo`s.
+    ///
+    /// # Arguments
+    ///
+    /// * `conn_infos` - An iterator of `ConnectionInfo`s.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisPubSubSubscriber`.
     pub fn with_conn_infos<I>(conn_infos: I) -> Self
     where
         I: IntoIterator<Item = ConnectionInfo>,
@@ -80,18 +129,46 @@ where
         }
     }
 
+    /// Sets the retry configuration for the subscriber.
+    ///
+    /// # Arguments
+    ///
+    /// * `max_count` - The maximum number of retry attempts.
+    /// * `init_delay_ms` - The initial delay between retries in milliseconds.
+    /// * `max_delay_ms` - The maximum delay between retries in milliseconds.
     pub fn set_retry(&mut self, max_count: u32, init_delay_ms: u64, max_delay_ms: u64) {
         self.retry = Retry::with_params(max_count, init_delay_ms, max_delay_ms);
     }
 
+    /// Adds a channel to subscribe to.
+    ///
+    /// # Arguments
+    ///
+    /// * `channel` - The channel to subscribe to.
     pub fn subscribe(&mut self, channel: A) {
         self.channels.push(channel);
     }
 
+    /// Adds a pattern to subscribe to.
+    ///
+    /// # Arguments
+    ///
+    /// * `pattern` - The pattern to subscribe to.
     pub fn psubscribe(&mut self, pattern: A) {
         self.patterns.push(pattern);
     }
 
+    /// Starts receiving messages and calls the provided callback for each message.
+    ///
+    /// This method blocks until the callback returns `ControlFlow::Break`.
+    ///
+    /// # Arguments
+    ///
+    /// * `f` - A callback function that takes a `redis::Msg` and returns a `redis::ControlFlow`.
+    ///
+    /// # Returns
+    ///
+    /// A result containing the value returned by `ControlFlow::Break`, or an error.
     pub fn receive<F, U>(mut self, mut f: F) -> errs::Result<U>
     where
         F: FnMut(Msg) -> ControlFlow<U>,

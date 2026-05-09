@@ -14,21 +14,52 @@ use redis::{ConnectionAddr, ConnectionInfo};
 use std::fmt::Debug;
 use std::mem;
 
+/// Errors related to Redis data source and connection for cluster configuration.
 #[derive(Debug)]
 pub enum RedisError {
+    /// Indicates that the data source is not yet setup.
     NotSetupYet,
+    /// Indicates that the data source is already setup.
     AlreadySetup,
-    FailToBuildClientOfAddrs { addrs: Vec<String> },
-    FailToBuildPoolOfAddrs { addrs: Vec<String> },
-    FailToBuildClientOfConnAddrs { conn_addrs: Vec<ConnectionAddr> },
-    FailToBuildPoolOfConnAddrs { conn_addrs: Vec<ConnectionAddr> },
-    FailToBuildClientOfConnInfos { conn_infos: Vec<ConnectionInfo> },
-    FailToBuildPoolOfConnInfos { conn_infos: Vec<ConnectionInfo> },
+    /// Failed to build a cluster client with the specified address strings.
+    FailToBuildClientOfAddrs {
+        /// The cluster node address strings.
+        addrs: Vec<String>,
+    },
+    /// Failed to build a connection pool with the specified address strings.
+    FailToBuildPoolOfAddrs {
+        /// The cluster node address strings.
+        addrs: Vec<String>,
+    },
+    /// Failed to build a cluster client with the specified `ConnectionAddr`s.
+    FailToBuildClientOfConnAddrs {
+        /// The cluster node `ConnectionAddr`s.
+        conn_addrs: Vec<ConnectionAddr>,
+    },
+    /// Failed to build a connection pool with the specified `ConnectionAddr`s.
+    FailToBuildPoolOfConnAddrs {
+        /// The cluster node `ConnectionAddr`s.
+        conn_addrs: Vec<ConnectionAddr>,
+    },
+    /// Failed to build a cluster client with the specified `ConnectionInfo`s.
+    FailToBuildClientOfConnInfos {
+        /// The cluster node `ConnectionInfo`s.
+        conn_infos: Vec<ConnectionInfo>,
+    },
+    /// Failed to build a connection pool with the specified `ConnectionInfo`s.
+    FailToBuildPoolOfConnInfos {
+        /// The cluster node `ConnectionInfo`s.
+        conn_infos: Vec<ConnectionInfo>,
+    },
+    /// Failed to build a cluster client with the specified `ClusterClientBuilder`.
     FailToBuildClientWithClientBuilder,
+    /// Failed to build a connection pool with the specified `ClusterClientBuilder`.
     FailToBuildPoolWithClientBuilder,
+    /// Failed to get a connection from the pool.
     FailToGetConnectionFromPool,
 }
 
+/// A struct that holds a pooled Redis cluster connection and transaction callbacks for cluster configuration.
 #[allow(clippy::type_complexity)]
 pub struct RedisDataConn {
     conn: PooledConnection<ClusterClient>,
@@ -47,10 +78,20 @@ impl RedisDataConn {
         }
     }
 
+    /// Returns a mutable reference to the underlying pooled Redis cluster connection.
+    ///
+    /// # Returns
+    ///
+    /// A mutable reference to the `r2d2::PooledConnection<ClusterClient>`.
     pub fn get_connection(&mut self) -> &mut PooledConnection<ClusterClient> {
         &mut self.conn
     }
 
+    /// Adds a callback function to be executed before a transaction is committed.
+    ///
+    /// # Arguments
+    ///
+    /// * `f` - A callback function that takes a mutable reference to the cluster connection.
     pub fn add_pre_commit<F>(&mut self, f: F)
     where
         F: FnMut(&mut ClusterConnection) -> errs::Result<()> + 'static,
@@ -58,6 +99,11 @@ impl RedisDataConn {
         self.pre_commit_vec.push(Box::new(f));
     }
 
+    /// Adds a callback function to be executed after a transaction is committed.
+    ///
+    /// # Arguments
+    ///
+    /// * `f` - A callback function that takes a mutable reference to the cluster connection.
     pub fn add_post_commit<F>(&mut self, f: F)
     where
         F: FnMut(&mut ClusterConnection) -> errs::Result<()> + 'static,
@@ -65,6 +111,11 @@ impl RedisDataConn {
         self.post_commit_vec.push(Box::new(f));
     }
 
+    /// Adds a callback function to be executed when a transaction is rolled back or forced back.
+    ///
+    /// # Arguments
+    ///
+    /// * `f` - A callback function that takes a mutable reference to the cluster connection.
     pub fn add_force_back<F>(&mut self, f: F)
     where
         F: FnMut(&mut ClusterConnection) -> errs::Result<()> + 'static,
@@ -110,6 +161,7 @@ impl DataConn for RedisDataConn {
     fn close(&mut self) {}
 }
 
+/// A struct that manages a Redis cluster connection pool for cluster configuration.
 pub struct RedisDataSrc {
     pool: Option<RedisPool>,
 }
@@ -123,6 +175,15 @@ enum RedisPool {
 }
 
 impl RedisDataSrc {
+    /// Creates a new `RedisDataSrc` with cluster node address strings.
+    ///
+    /// # Arguments
+    ///
+    /// * `addrs` - An iterator of string slices that hold the cluster node addresses.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisDataSrc`.
     pub fn new<I>(addrs: I) -> Self
     where
         I: IntoIterator<Item: AsRef<str>>,
@@ -133,6 +194,16 @@ impl RedisDataSrc {
         }
     }
 
+    /// Creates a new `RedisDataSrc` with cluster node address strings and a pool builder.
+    ///
+    /// # Arguments
+    ///
+    /// * `addrs` - An iterator of string slices that hold the cluster node addresses.
+    /// * `pool_builder` - A `r2d2::Builder<ClusterClient>`.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisDataSrc`.
     pub fn with_pool_builder<I>(addrs: I, pool_builder: Builder<ClusterClient>) -> Self
     where
         I: IntoIterator<Item: AsRef<str>>,
@@ -143,6 +214,15 @@ impl RedisDataSrc {
         }
     }
 
+    /// Creates a new `RedisDataSrc` with cluster node `ConnectionAddr`s.
+    ///
+    /// # Arguments
+    ///
+    /// * `conn_addrs` - An iterator of `ConnectionAddr`s.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisDataSrc`.
     pub fn with_conn_addrs<I>(conn_addrs: I) -> Self
     where
         I: IntoIterator<Item = ConnectionAddr>,
@@ -156,6 +236,16 @@ impl RedisDataSrc {
         }
     }
 
+    /// Creates a new `RedisDataSrc` with cluster node `ConnectionAddr`s and a pool builder.
+    ///
+    /// # Arguments
+    ///
+    /// * `conn_addrs` - An iterator of `ConnectionAddr`s.
+    /// * `pool_builder` - A `r2d2::Builder<ClusterClient>`.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisDataSrc`.
     pub fn with_conn_addrs_and_pool_builder<I>(
         conn_addrs: I,
         pool_builder: Builder<ClusterClient>,
@@ -172,6 +262,15 @@ impl RedisDataSrc {
         }
     }
 
+    /// Creates a new `RedisDataSrc` with cluster node `ConnectionInfo`s.
+    ///
+    /// # Arguments
+    ///
+    /// * `conn_infos` - An iterator of `ConnectionInfo`s.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisDataSrc`.
     pub fn with_conn_infos<I>(conn_infos: I) -> Self
     where
         I: IntoIterator<Item = ConnectionInfo>,
@@ -185,6 +284,16 @@ impl RedisDataSrc {
         }
     }
 
+    /// Creates a new `RedisDataSrc` with cluster node `ConnectionInfo`s and a pool builder.
+    ///
+    /// # Arguments
+    ///
+    /// * `conn_infos` - An iterator of `ConnectionInfo`s.
+    /// * `pool_builder` - A `r2d2::Builder<ClusterClient>`.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisDataSrc`.
     pub fn with_conn_infos_and_pool_builder<I>(
         conn_infos: I,
         pool_builder: Builder<ClusterClient>,
@@ -201,6 +310,15 @@ impl RedisDataSrc {
         }
     }
 
+    /// Creates a new `RedisDataSrc` with a `ClusterClientBuilder`.
+    ///
+    /// # Arguments
+    ///
+    /// * `client_builder` - A `redis::cluster::ClusterClientBuilder`.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisDataSrc`.
     pub fn with_client_builder(client_builder: ClusterClientBuilder) -> Self {
         Self {
             pool: Some(RedisPool::ClientBuilderConfig(Box::new((
@@ -210,6 +328,16 @@ impl RedisDataSrc {
         }
     }
 
+    /// Creates a new `RedisDataSrc` with a `ClusterClientBuilder` and a pool builder.
+    ///
+    /// # Arguments
+    ///
+    /// * `client_builder` - A `redis::cluster::ClusterClientBuilder`.
+    /// * `pool_builder` - A `r2d2::Builder<ClusterClient>`.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisDataSrc`.
     pub fn with_client_builder_and_pool_builder(
         client_builder: ClusterClientBuilder,
         pool_builder: Builder<ClusterClient>,
