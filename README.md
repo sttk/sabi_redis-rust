@@ -1,33 +1,14 @@
 # [sabi_redis for Rust][repo-url] [![crates.io][cratesio-img]][cratesio-url] [![doc.rs][docrs-img]][docrs-url] [![CI Status][ci-img]][ci-url] [![MIT License][mit-img]][mit-url]
 
-The sabi data access library for Redis in Rust.
+**sabi-redis** is a Redis data source implementation for [sabi](https://crates.io/crates/sabi), a lightweight data access framework for Rust. It enables seamless integration of Redis access into `sabi`'s transaction management system.
 
-`sabi_redis` is a Rust crate that provides a streamlined way to access various Redis configurations
-within the sabi framework. It includes `DataSrc` and `DataConn` derived classes designed to make
-your development process more efficient
+## Key Features
 
-`RedisDataSrc` and `RedisDataConn` are designed for a standalone Redis server and provide
-synchronous connections for processing Redis commands. Additionally, `RedisAsyncDataSrc` and
-`RedisAsyncDataConn` are available for asynchronous command processing.
-
-For Redis Sentinel configurations, `RedisSentinelDataSrc` and `RedisSentinelDataConn` provide
-synchronous connections, while `RedisSentinelAsyncDataSrc` and `RedisSentinelAsyncDataConn`
-provide asynchronous connections.
-
-For Redis Cluster configurations, `RedisClusterDataSrc` and `RedisClusterDataConn` provide
-synchronous connections, while `RedisClusterAsyncDataSrc` and `RedisClusterAsyncDataConn`
-provide asynchronous connections.
-
-For Redis Pub/Sub, `RedisPubSub`, `RedisPubSubSentinel`, and `RedisPubSubCluster` provide
-synchronous subscribers for standalone, Sentinel, and Cluster configurations, respectively.
-Similarly, `RedisPubSubAsync`, `RedisPubSubSentinelAsync`, and `RedisPubSubClusterAsync` provide
-asynchronous subscribers. These subscribers allow received messages to be processed as `sabi` data
-connections, facilitating consistent integration with your business logic.
-
-Unlike relational databases, Redis does not support data rollbacks. This can lead to data
-inconsistency if a transaction involving both Redis and another database fails mid-process.
-To address this, `sabi_redis` offers three unique features to help developers manage Redis updates
-and revert changes when necessary: *"force back"*, *"pre-commit"*, and *"post-commit"*.
+- **Multiple Configurations**: Fully supports Standalone, Sentinel, and Cluster configurations.
+- **Sync & Async Support**: Provides both synchronous and asynchronous (Tokio-based) APIs.
+- **Pub/Sub Integration**: Includes specialized structures to receive Redis Pub/Sub messages and process them as `sabi` data sources.
+- **Efficient Connection Pooling**: Manages connections using established pooling libraries (`r2d2` for synchronous and `deadpool-redis` for asynchronous).
+- **Transaction Management**: Leverages `sabi`'s transaction lifecycle to handle commits and rollbacks (force-back) logic consistently.
 
 ## Installation
 
@@ -35,19 +16,19 @@ In Cargo.toml, write this crate as a dependency:
 
 ```toml
 [dependencies]
-sabi_redis = "0.7.0" # `standalone-sync` feature is enabled by default.
+sabi_redis = "0.7.0" # `standalone` feature is enabled by default.
 
 # If you want to use the `standalone-async` feature:
 # sabi_redis = { version = "0.7.0", default-features = false, features = ["standalone-async"] }
 
-# If you want to use the `sentinel-sync` feature:
-# sabi_redis = { version = "0.7.0", default-features = false, features = ["sentinel-sync"] }
+# If you want to use the `sentinel` feature:
+# sabi_redis = { version = "0.7.0", default-features = false, features = ["sentinel"] }
 
 # If you want to use the `sentinel-async` feature:
 # sabi_redis = { version = "0.7.0", default-features = false, features = ["sentinel-async"] }
 
-# If you want to use the `cluster-sync` feature:
-# sabi_redis = { version = "0.7.0", default-features = false, features = ["cluster-sync"] }
+# If you want to use the `cluster` feature:
+# sabi_redis = { version = "0.7.0", default-features = false, features = ["cluster"] }
 
 # If you want to use the `cluster-async` feature:
 # sabi_redis = { version = "0.7.0", default-features = false, features = ["cluster-async"] }
@@ -56,185 +37,302 @@ sabi_redis = "0.7.0" # `standalone-sync` feature is enabled by default.
 ## Usage
 
 ### For Standalone Server And Synchronous Commands
-> The `standalone-sync` feature is required for this functionality, and it is enabled by default.
-
-Here is an example of how to use `RedisDataSrc` and `RedisDataConn` to connect to Redis and
-execute a simple command.
+> The `standalone` feature is required for this functionality, and it is enabled by default.
 
 ```rust
-use errs;
-use override_macro::{overridable, override_with};
-use redis::Commands;
-use sabi::{uses, setup};
+use sabi::{setup, uses, DataHub, DataAcc};
 use sabi_redis::{RedisDataSrc, RedisDataConn};
+use redis::TypedCommands;
+use override_macro::{overridable, override_with};
 
-fn main() -> Result<(), errs::Err> {
-    // Register a `RedisDataSrc` instance to connect to a Redis server with the key "redis".
-    uses("redis", RedisDataSrc::new("redis://127.0.0.1:6379/0"));
+// Register the data source in the global scope
+uses!("redis", RedisDataSrc::new("redis://127.0.0.1:6379/0"));
 
-    // In this setup process, the registered `RedisDataSrc` instance connects to a Redis server.
-    let _auto_shutdown = setup()?;
-
-    my_app()
-}
-
-fn my_app() -> errs::Result<()> {
-    let mut data = sabi::DataHub::new();
-    data.txn(my_logic)
-}
-
-fn my_logic(data: &mut impl MyData) -> errs::Result<()> {
-    let greeting = data.get_greeting()?;
-    data.say_greeting(&greeting)
-}
-
+// Define a trait for logic
 #[overridable]
 trait MyData {
-    fn get_greeting(&mut self) -> errs::Result<String>;
     fn say_greeting(&mut self, greeting: &str) -> errs::Result<()>;
 }
 
+// Define a trait for data access
 #[overridable]
-trait GettingDataAcc: sabi::DataAcc {
-    fn get_greeting(&mut self) -> errs::Result<String> {
-        Ok("Hello!".to_string())
-    }
-}
-
-#[overridable]
-trait RedisSayingDataAcc: sabi::DataAcc {
+trait RedisDataAcc: DataAcc {
     fn say_greeting(&mut self, greeting: &str) -> errs::Result<()> {
-        // Retrieve a `RedisDataConn` instance by the key "redis".
         let data_conn = self.get_data_conn::<RedisDataConn>("redis")?;
-
-        // Get a Redis connection to execute Redis synchronous commands.
         let redis_conn = data_conn.get_connection();
-
-        redis_conn.set("greeting", greeting)
-            .map_err(|e| errs::Err::with_source("fail to set greeting", e))?;
-
-        // Register a force back process to revert updates to Redis when an error occurs.
-        data_conn.add_force_back(|redis_conn| {
-            redis_conn.del("greeting")
-                .map_err(|e| errs::Err::with_source("fail to force back", e))?;
-            Ok(())
-        });
-
+        redis_conn.set("greeting", greeting).map_err(|e| errs::Err::with_source("fail", e))?;
         Ok(())
     }
 }
 
-impl GettingDataAcc for sabi::DataHub {}
-impl RedisSayingDataAcc for sabi::DataHub {}
+// Integrate the data access trait into DataHub
+impl RedisDataAcc for DataHub {}
 
-#[override_with(GettingDataAcc, RedisSayingDataAcc)]
-impl MyData for sabi::DataHub {}
+// Override the logic trait with the data access implementation
+#[override_with(RedisDataAcc)]
+impl MyData for DataHub {}
+
+// Logic function takes the trait
+fn my_logic(data: &mut impl MyData) -> errs::Result<()> {
+    data.say_greeting("Hello!")
+}
+
+fn my_app() -> errs::Result<()> {
+    let mut hub = DataHub::new();
+    hub.txn(my_logic)
+}
+
+fn main() -> errs::Result<()> {
+    let _auto_shutdown = setup()?;
+    my_app()
+}
+```
+
+#### For Pub/Sub Subscribers And Synchronous Messages
+
+```rust
+use sabi::{setup, DataHub, DataAcc};
+use sabi_redis::{RedisPubSubSubscriber, RedisPubSubMsgDataSrc, RedisPubSubMsgDataConn};
+use redis::ControlFlow;
+use override_macro::{overridable, override_with};
+
+#[overridable]
+trait MyMsgData {
+    fn get_payload(&mut self) -> errs::Result<String>;
+}
+
+#[overridable]
+trait RedisPubSubDataAcc: DataAcc {
+    fn get_payload(&mut self) -> errs::Result<String> {
+        let data_conn = self.get_data_conn::<RedisPubSubMsgDataConn>("msg")?;
+        let msg = data_conn.get_message();
+        msg.get_payload::<String>().map_err(|e| errs::Err::with_source("fail", e))
+    }
+}
+
+impl RedisPubSubDataAcc for DataHub {}
+
+#[override_with(RedisPubSubDataAcc)]
+impl MyMsgData for DataHub {}
+
+fn receive_logic(data: &mut impl MyMsgData) -> errs::Result<()> {
+    let payload = data.get_payload()?;
+    println!("Received: {}", payload);
+    Ok(())
+}
+
+fn main() -> errs::Result<()> {
+    let _auto_shutdown = setup()?;
+
+    let mut subscriber = RedisPubSubSubscriber::new("redis://127.0.0.1:6379/0");
+    subscriber.subscribe("channel-1");
+    subscriber.receive(|msg| {
+        let mut hub = DataHub::new();
+        hub.uses("msg", RedisPubSubMsgDataSrc::new(msg));
+        hub.txn(receive_logic).unwrap();
+        ControlFlow::Continue
+    })
+}
 ```
 
 ### For Standalone Server And Asynchronous Commands
 > The `standalone-async` feature is required for this functionality.
 
-Here is an example of how to use `RedisAsyncDataSrc` and `RedisAsyncDataConn` to connect to Redis and
-execute a simple asynchronous command.
-
 ```rust
-use errs;
+use sabi::tokio::{logic, setup_async, uses, DataHub, DataAcc};
+use sabi_redis::{RedisDataSrcAsync, RedisDataConnAsync};
+use redis::AsyncTypedCommands;
 use override_macro::{overridable, override_with};
-use redis::AsyncCommands;
-use sabi::{logic, uses, setup_async};
-use sabi_redis::{RedisAsyncDataSrc, RedisAsyncDataConn};
 
-#[tokio::main]
-async fn main() -> Result<(), errs::Err> {
-    // Register a `RedisAsyncDataSrc` instance to connect to a Redis server with the key "redis".
-    uses("redis", RedisAsyncDataSrc::new("redis://127.0.0.1:6379/0"));
-
-    // In this setup process, the registered `RedisAsyncDataSrc` instance connects to a Redis server.
-    let _auto_shutdown = setup_async().await?;
-
-    my_app_async().await
-}
-
-async fn my_app_async() -> errs::Result<()> {
-    let mut data = sabi::tokio::DataHub::new();
-    data.txn_async(logic!(my_logic_async)).await?;
-    Ok(())
-}
-
-async fn my_logic_async(data: &mut impl MyData) -> errs::Result<()> {
-    let greeting = data.get_greeting_async().await?;
-    data.say_greeting_async(&greeting).await
-}
+uses!("redis", RedisDataSrcAsync::new("redis://127.0.0.1:6379/0"));
 
 #[overridable]
-trait MyData {
-    async fn get_greeting_async(&mut self) -> errs::Result<String>;
+trait MyDataAsync {
     async fn say_greeting_async(&mut self, greeting: &str) -> errs::Result<()>;
 }
 
 #[overridable]
-trait GettingDataAcc: sabi::tokio::DataAcc {
-    async fn get_greeting_async(&mut self) -> errs::Result<String> {
-        Ok("Hello!".to_string())
-    }
-}
-
-#[overridable]
-trait RedisSayingDataAcc: sabi::tokio::DataAcc {
+trait RedisDataAccAsync: DataAcc {
     async fn say_greeting_async(&mut self, greeting: &str) -> errs::Result<()> {
-        // Retrieve a `RedisAsyncDataConn` instance by the key "redis".
-        let data_conn = self.get_data_conn_async::<RedisAsyncDataConn>("redis").await?;
-
-        // Get an asynchronous Redis connection to execute Redis commands.
+        let data_conn = self.get_data_conn_async::<RedisDataConnAsync>("redis").await?;
         let redis_conn = data_conn.get_connection();
-
-        redis_conn.set("greeting", greeting)
-            .await
-            .map_err(|e| errs::Err::with_source("fail to set greeting", e))?;
-
-        // Register an asynchronous force back process to revert updates to Redis when an error occurs.
-        data_conn.add_force_back_async(|mut redis_conn| async move {
-            redis_conn.del("greeting")
-                .await
-                .map_err(|e| errs::Err::with_source("fail to force back", e))?;
-            Ok(())
-        }).await;
-
+        redis_conn.set("greeting", greeting).await.map_err(|e| errs::Err::with_source("fail", e))?;
         Ok(())
     }
 }
 
-impl GettingDataAcc for sabi::tokio::DataHub {}
-impl RedisSayingDataAcc for sabi::tokio::DataHub {}
+impl RedisDataAccAsync for DataHub {}
 
-#[override_with(GettingDataAcc, RedisSayingDataAcc)]
-impl MyData for sabi::tokio::DataHub {}
+#[override_with(RedisDataAccAsync)]
+impl MyDataAsync for DataHub {}
+
+async fn my_logic_async(data: &mut impl MyDataAsync) -> errs::Result<()> {
+    data.say_greeting_async("Hello!").await
+}
+
+async fn my_app_async() -> errs::Result<()> {
+    let mut hub = DataHub::new();
+    hub.txn_async(logic!(my_logic_async)).await
+}
+
+#[tokio::main]
+async fn main() -> errs::Result<()> {
+    let _auto_shutdown = setup_async().await?;
+    my_app_async().await
+}
+```
+
+#### For Pub/Sub Subscribers And Asynchronous Messages
+
+```rust
+use sabi::tokio::{logic, setup_async, DataHub, DataAcc};
+use sabi_redis::{RedisPubSubSubscriberAsync, RedisPubSubMsgDataSrcAsync, RedisPubSubMsgDataConnAsync};
+use redis::ControlFlow;
+use override_macro::{overridable, override_with};
+
+#[overridable]
+trait MyMsgDataAsync {
+    async fn get_payload_async(&mut self) -> errs::Result<String>;
+}
+
+#[overridable]
+trait RedisPubSubDataAccAsync: DataAcc {
+    async fn get_payload_async(&mut self) -> errs::Result<String> {
+        let data_conn = self.get_data_conn_async::<RedisPubSubMsgDataConnAsync>("msg").await?;
+        let msg = data_conn.get_message();
+        msg.get_payload::<String>().map_err(|e| errs::Err::with_source("fail", e))
+    }
+}
+
+impl RedisPubSubDataAccAsync for DataHub {}
+
+#[override_with(RedisPubSubDataAccAsync)]
+impl MyMsgDataAsync for DataHub {}
+
+async fn receive_logic_async(data: &mut impl MyMsgDataAsync) -> errs::Result<()> {
+    let payload = data.get_payload_async().await?;
+    println!("Received: {}", payload);
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() -> errs::Result<()> {
+    let _auto_shutdown = setup_async().await?;
+
+    let mut subscriber = RedisPubSubSubscriberAsync::new("redis://127.0.0.1:6379/0");
+    subscriber.subscribe("channel-1");
+    subscriber.receive_async(async |msg| {
+        let mut hub = DataHub::new();
+        hub.uses("msg", RedisPubSubMsgDataSrcAsync::new(msg));
+        hub.txn_async(logic!(receive_logic_async)).await.unwrap();
+        ControlFlow::Continue
+    }).await
+}
 ```
 
 ### For Sentinel Configuration And Synchronous Commands
-> The `sentinel-sync` feature is required for this functionality.
+> The `sentinel` feature is required for this functionality.
 
 ```rust
-use errs;
-use sabi::{uses, setup};
-use sabi_redis::sentinel::RedisSentinelDataSrc;
+use sabi::{setup, uses, DataHub, DataAcc};
+use sabi_redis::sentinel::{RedisDataSrc, RedisDataConn};
+use redis::sentinel::SentinelServerType;
+use redis::TypedCommands;
+use override_macro::{overridable, override_with};
 
-fn main() -> Result<(), errs::Err> {
-    uses(
-        "redis",
-        RedisSentinelDataSrc::new(
-            vec![
-                "redis://127.0.0.1:26479",
-                "redis://127.0.0.1:26480",
-                "redis://127.0.0.1:26481",
-            ],
-            "mymaster",
-        ),
-    );
+uses!(
+    "redis",
+    RedisDataSrc::new(
+        vec!["redis://127.0.0.1:26379/", "redis://127.0.0.1:26380/", "redis://127.0.0.1:26381/"],
+        "mymaster",
+        SentinelServerType::Master,
+    )
+);
 
+#[overridable]
+trait MyData {
+    fn say_greeting(&mut self, greeting: &str) -> errs::Result<()>;
+}
+
+#[overridable]
+trait RedisDataAcc: DataAcc {
+    fn say_greeting(&mut self, greeting: &str) -> errs::Result<()> {
+        let data_conn = self.get_data_conn::<RedisDataConn>("redis")?;
+        let redis_conn = data_conn.get_connection();
+        redis_conn.set("greeting", greeting).map_err(|e| errs::Err::with_source("fail", e))?;
+        Ok(())
+    }
+}
+
+impl RedisDataAcc for DataHub {}
+
+#[override_with(RedisDataAcc)]
+impl MyData for DataHub {}
+
+fn my_logic(data: &mut impl MyData) -> errs::Result<()> {
+    data.say_greeting("Hello!")
+}
+
+fn my_app() -> errs::Result<()> {
+    let mut hub = DataHub::new();
+    hub.txn(my_logic)
+}
+
+fn main() -> errs::Result<()> {
     let _auto_shutdown = setup()?;
-    // ...
+    my_app()
+}
+```
+
+#### For Pub/Sub Subscribers And Synchronous Messages
+
+```rust
+use sabi::{setup, DataHub, DataAcc};
+use sabi_redis::sentinel::{RedisPubSubSubscriber, RedisPubSubMsgDataSrc, RedisPubSubMsgDataConn};
+use redis::sentinel::SentinelServerType;
+use redis::ControlFlow;
+use override_macro::{overridable, override_with};
+
+#[overridable]
+trait MyMsgData {
+    fn get_payload(&mut self) -> errs::Result<String>;
+}
+
+#[overridable]
+trait RedisPubSubDataAcc: DataAcc {
+    fn get_payload(&mut self) -> errs::Result<String> {
+        let data_conn = self.get_data_conn::<RedisPubSubMsgDataConn>("msg")?;
+        let msg = data_conn.get_message();
+        msg.get_payload::<String>().map_err(|e| errs::Err::with_source("fail", e))
+    }
+}
+
+impl RedisPubSubDataAcc for DataHub {}
+
+#[override_with(RedisPubSubDataAcc)]
+impl MyMsgData for DataHub {}
+
+fn receive_logic(data: &mut impl MyMsgData) -> errs::Result<()> {
+    let payload = data.get_payload()?;
+    println!("Received: {}", payload);
     Ok(())
+}
+
+fn main() -> errs::Result<()> {
+    let _auto_shutdown = setup()?;
+
+    let mut subscriber = RedisPubSubSubscriber::new(
+        vec!["redis://127.0.0.1:26379/", "redis://127.0.0.1:26380/", "redis://127.0.0.1:26381/"],
+        "mymaster",
+        SentinelServerType::Master,
+    );
+    subscriber.subscribe("channel-1");
+    subscriber.receive(|msg| {
+        let mut hub = DataHub::new();
+        hub.uses("msg", RedisPubSubMsgDataSrc::new(msg));
+        hub.txn(receive_logic).unwrap();
+        ControlFlow::Continue
+    })
 }
 ```
 
@@ -242,53 +340,211 @@ fn main() -> Result<(), errs::Err> {
 > The `sentinel-async` feature is required for this functionality.
 
 ```rust
-use errs;
-use sabi::{uses, setup_async};
-use sabi_redis::sentinel::RedisSentinelAsyncDataSrc;
+use sabi::tokio::{logic, setup_async, uses, DataHub, DataAcc};
+use sabi_redis::sentinel::{RedisDataSrcAsync, RedisDataConnAsync};
+use redis::sentinel::SentinelServerType;
+use redis::AsyncTypedCommands;
+use override_macro::{overridable, override_with};
+
+uses!(
+    "redis",
+    RedisDataSrcAsync::new(
+        vec!["redis://127.0.0.1:26379/", "redis://127.0.0.1:26380/", "redis://127.0.0.1:26381/"],
+        "mymaster",
+        SentinelServerType::Master,
+    )
+);
+
+#[overridable]
+trait MyDataAsync {
+    async fn say_greeting_async(&mut self, greeting: &str) -> errs::Result<()>;
+}
+
+#[overridable]
+trait RedisDataAccAsync: DataAcc {
+    async fn say_greeting_async(&mut self, greeting: &str) -> errs::Result<()> {
+        let data_conn = self.get_data_conn_async::<RedisDataConnAsync>("redis").await?;
+        let redis_conn = data_conn.get_connection();
+        redis_conn.set("greeting", greeting).await.map_err(|e| errs::Err::with_source("fail", e))?;
+        Ok(())
+    }
+}
+
+impl RedisDataAccAsync for DataHub {}
+
+#[override_with(RedisDataAccAsync)]
+impl MyDataAsync for DataHub {}
+
+async fn my_logic_async(data: &mut impl MyDataAsync) -> errs::Result<()> {
+    data.say_greeting_async("Hello!").await
+}
+
+async fn my_app_async() -> errs::Result<()> {
+    let mut hub = DataHub::new();
+    hub.txn_async(logic!(my_logic_async)).await
+}
 
 #[tokio::main]
-async fn main() -> Result<(), errs::Err> {
-    uses(
-        "redis",
-        RedisSentinelAsyncDataSrc::new(
-            vec![
-                "redis://127.0.0.1:26479",
-                "redis://127.0.0.1:26480",
-                "redis://127.0.0.1:26481",
-            ],
-            "mymaster",
-        ),
-    );
-
+async fn main() -> errs::Result<()> {
     let _auto_shutdown = setup_async().await?;
-    // ...
+    my_app_async().await
+}
+```
+
+#### For Pub/Sub Subscribers And Asynchronous Messages
+
+```rust
+use sabi::tokio::{logic, setup_async, DataHub, DataAcc};
+use sabi_redis::sentinel::{RedisPubSubSubscriberAsync, RedisPubSubMsgDataSrcAsync, RedisPubSubMsgDataConnAsync};
+use redis::sentinel::SentinelServerType;
+use redis::ControlFlow;
+use override_macro::{overridable, override_with};
+
+#[overridable]
+trait MyMsgDataAsync {
+    async fn get_payload_async(&mut self) -> errs::Result<String>;
+}
+
+#[overridable]
+trait RedisPubSubDataAccAsync: DataAcc {
+    async fn get_payload_async(&mut self) -> errs::Result<String> {
+        let data_conn = self.get_data_conn_async::<RedisPubSubMsgDataConnAsync>("msg").await?;
+        let msg = data_conn.get_message();
+        msg.get_payload::<String>().map_err(|e| errs::Err::with_source("fail", e))
+    }
+}
+
+impl RedisPubSubDataAccAsync for DataHub {}
+
+#[override_with(RedisPubSubDataAccAsync)]
+impl MyMsgDataAsync for DataHub {}
+
+async fn receive_logic_async(data: &mut impl MyMsgDataAsync) -> errs::Result<()> {
+    let payload = data.get_payload_async().await?;
+    println!("Received: {}", payload);
     Ok(())
+}
+
+#[tokio::main]
+async fn main() -> errs::Result<()> {
+    let _auto_shutdown = setup_async().await?;
+
+    let mut subscriber = RedisPubSubSubscriberAsync::new(
+        vec!["redis://127.0.0.1:26379/", "redis://127.0.0.1:26380/", "redis://127.0.0.1:26381/"],
+        "mymaster",
+        SentinelServerType::Master,
+    );
+    subscriber.subscribe("channel-1");
+    subscriber.receive_async(async |msg| {
+        let mut hub = DataHub::new();
+        hub.uses("msg", RedisPubSubMsgDataSrcAsync::new(msg));
+        hub.txn_async(logic!(receive_logic_async)).await.unwrap();
+        ControlFlow::Continue
+    }).await
 }
 ```
 
 ### For Cluster Configuration And Synchronous Commands
-> The `cluster-sync` feature is required for this functionality.
+> The `cluster` feature is required for this functionality.
 
 ```rust
-use errs;
-use sabi::{uses, setup};
-use sabi_redis::cluster::RedisClusterDataSrc;
+use sabi::{setup, uses, DataHub, DataAcc};
+use sabi_redis::cluster::{RedisDataSrc, RedisDataConn};
+use redis::TypedCommands;
+use override_macro::{overridable, override_with};
 
-fn main() -> Result<(), errs::Err> {
-    uses(
-        "redis",
-        RedisClusterDataSrc::new(
-            vec![
-                "redis://127.0.0.1:7000",
-                "redis://127.0.0.1:7001",
-                "redis://127.0.0.1:7002",
-            ],
-        ),
-    );
+uses!(
+    "redis",
+    RedisDataSrc::new(vec![
+        "redis://127.0.0.1:7000/",
+        "redis://127.0.0.1:7001/",
+        "redis://127.0.0.1:7002/",
+    ])
+);
 
+#[overridable]
+trait MyData {
+    fn say_greeting(&mut self, greeting: &str) -> errs::Result<()>;
+}
+
+#[overridable]
+trait RedisDataAcc: DataAcc {
+    fn say_greeting(&mut self, greeting: &str) -> errs::Result<()> {
+        let data_conn = self.get_data_conn::<RedisDataConn>("redis")?;
+        let redis_conn = data_conn.get_connection();
+        redis_conn.set("greeting", greeting).map_err(|e| errs::Err::with_source("fail", e))?;
+        Ok(())
+    }
+}
+
+impl RedisDataAcc for DataHub {}
+
+#[override_with(RedisDataAcc)]
+impl MyData for DataHub {}
+
+fn my_logic(data: &mut impl MyData) -> errs::Result<()> {
+    data.say_greeting("Hello!")
+}
+
+fn my_app() -> errs::Result<()> {
+    let mut hub = DataHub::new();
+    hub.txn(my_logic)
+}
+
+fn main() -> errs::Result<()> {
     let _auto_shutdown = setup()?;
-    // ...
+    my_app()
+}
+```
+
+#### For Pub/Sub Subscribers And Synchronous Messages
+
+```rust
+use sabi::{setup, DataHub, DataAcc};
+use sabi_redis::cluster::{RedisPubSubSubscriber, RedisPubSubMsgDataSrc, RedisPubSubMsgDataConn};
+use redis::ControlFlow;
+use override_macro::{overridable, override_with};
+
+#[overridable]
+trait MyMsgData {
+    fn get_payload(&mut self) -> errs::Result<String>;
+}
+
+#[overridable]
+trait RedisPubSubDataAcc: DataAcc {
+    fn get_payload(&mut self) -> errs::Result<String> {
+        let data_conn = self.get_data_conn::<RedisPubSubMsgDataConn>("msg")?;
+        let msg = data_conn.get_message();
+        msg.get_payload::<String>().map_err(|e| errs::Err::with_source("fail", e))
+    }
+}
+
+impl RedisPubSubDataAcc for DataHub {}
+
+#[override_with(RedisPubSubDataAcc)]
+impl MyMsgData for DataHub {}
+
+fn receive_logic(data: &mut impl MyMsgData) -> errs::Result<()> {
+    let payload = data.get_payload()?;
+    println!("Received: {}", payload);
     Ok(())
+}
+
+fn main() -> errs::Result<()> {
+    let _auto_shutdown = setup()?;
+
+    let mut subscriber = RedisPubSubSubscriber::new(vec![
+        "redis://127.0.0.1:7000/",
+        "redis://127.0.0.1:7001/",
+        "redis://127.0.0.1:7002/",
+    ]);
+    subscriber.subscribe("channel-1");
+    subscriber.receive(|msg| {
+        let mut hub = DataHub::new();
+        hub.uses("msg", RedisPubSubMsgDataSrc::new(msg));
+        hub.txn(receive_logic).unwrap();
+        ControlFlow::Continue
+    })
 }
 ```
 
@@ -296,127 +552,106 @@ fn main() -> Result<(), errs::Err> {
 > The `cluster-async` feature is required for this functionality.
 
 ```rust
-use errs;
-use sabi::{uses, setup_async};
-use sabi_redis::cluster::RedisClusterAsyncDataSrc;
+use sabi::tokio::{logic, setup_async, uses, DataHub, DataAcc};
+use sabi_redis::cluster::{RedisDataSrcAsync, RedisDataConnAsync};
+use redis::AsyncTypedCommands;
+use override_macro::{overridable, override_with};
+
+uses!(
+    "redis",
+    RedisDataSrcAsync::new(vec![
+        "redis://127.0.0.1:7000/",
+        "redis://127.0.0.1:7001/",
+        "redis://127.0.0.1:7002/",
+    ])
+);
+
+#[overridable]
+trait MyDataAsync {
+    async fn say_greeting_async(&mut self, greeting: &str) -> errs::Result<()>;
+}
+
+#[overridable]
+trait RedisDataAccAsync: DataAcc {
+    async fn say_greeting_async(&mut self, greeting: &str) -> errs::Result<()> {
+        let data_conn = self.get_data_conn_async::<RedisDataConnAsync>("redis").await?;
+        let redis_conn = data_conn.get_connection();
+        redis_conn.set("greeting", greeting).await.map_err(|e| errs::Err::with_source("fail", e))?;
+        Ok(())
+    }
+}
+
+impl RedisDataAccAsync for DataHub {}
+
+#[override_with(RedisDataAccAsync)]
+impl MyDataAsync for DataHub {}
+
+async fn my_logic_async(data: &mut impl MyDataAsync) -> errs::Result<()> {
+    data.say_greeting_async("Hello!").await
+}
+
+async fn my_app_async() -> errs::Result<()> {
+    let mut hub = DataHub::new();
+    hub.txn_async(logic!(my_logic_async)).await
+}
 
 #[tokio::main]
-async fn main() -> Result<(), errs::Err> {
-    uses(
-        "redis",
-        RedisClusterAsyncDataSrc::new(
-            vec![
-                "redis://127.0.0.1:7000",
-                "redis://127.0.0.1:7001",
-                "redis://127.0.0.1:7002",
-            ],
-        ),
-    );
-
+async fn main() -> errs::Result<()> {
     let _auto_shutdown = setup_async().await?;
-    // ...
-    Ok(())
+    my_app_async().await
 }
 ```
 
-### For Pub/Sub Subscribers And Synchronous Messages
-> One of `standalone-sync`, `sentinel-sync`, or `cluster-sync` features is required for this functionality.
-
-Here is an example of how to use `RedisPubSub` to subscribe to a channel and process
-messages synchronously.
+#### For Pub/Sub Subscribers And Asynchronous Messages
 
 ```rust
+use sabi::tokio::{logic, setup_async, DataHub, DataAcc};
+use sabi_redis::cluster::{RedisPubSubSubscriberAsync, RedisPubSubMsgDataSrcAsync, RedisPubSubMsgDataConnAsync};
 use redis::ControlFlow;
-use sabi_redis::pubsub::{RedisPubSub, RedisPubSubMsgDataSrc, RedisPubSubMsgDataConn};
+use override_macro::{overridable, override_with};
 
-fn main() -> Result<(), errs::Err> {
-    let mut pubsub = RedisPubSub::new("redis://127.0.0.1:6379/0");
-    pubsub.subscribe("my-channel");
-
-    pubsub.receive(|msg| {
-        let mut data = sabi::DataHub::new();
-        data.uses("redis/pubsub", RedisPubSubMsgDataSrc::new(msg));
-        data.run(my_logic).unwrap();
-        ControlFlow::Continue
-    })
+#[overridable]
+trait MyMsgDataAsync {
+    async fn get_payload_async(&mut self) -> errs::Result<String>;
 }
 
-fn my_logic(data: &mut impl MyData) -> errs::Result<()> {
-    let payload = data.get_message()?;
+#[overridable]
+trait RedisPubSubDataAccAsync: DataAcc {
+    async fn get_payload_async(&mut self) -> errs::Result<String> {
+        let data_conn = self.get_data_conn_async::<RedisPubSubMsgDataConnAsync>("msg").await?;
+        let msg = data_conn.get_message();
+        msg.get_payload::<String>().map_err(|e| errs::Err::with_source("fail", e))
+    }
+}
+
+impl RedisPubSubDataAccAsync for DataHub {}
+
+#[override_with(RedisPubSubDataAccAsync)]
+impl MyMsgDataAsync for DataHub {}
+
+async fn receive_logic_async(data: &mut impl MyMsgDataAsync) -> errs::Result<()> {
+    let payload = data.get_payload_async().await?;
     println!("Received: {}", payload);
     Ok(())
 }
 
-#[overridable]
-trait MyData {
-    fn get_message(&mut self) -> errs::Result<String>;
-}
-
-#[overridable]
-trait MyDataAcc: sabi::DataAcc {
-    fn get_message(&mut self) -> errs::Result<String> {
-        let data_conn = self.get_data_conn::<RedisPubSubMsgDataConn>("redis/pubsub")?;
-        let msg = data_conn.get_message();
-        let payload: String = msg.get_payload().unwrap();
-        Ok(payload)
-    }
-}
-
-impl MyDataAcc for sabi::DataHub {}
-
-#[override_with(MyDataAcc)]
-impl MyData for sabi::DataHub {}
-```
-
-### For Pub/Sub Subscribers And Asynchronous Messages
-> One of `standalone-async`, `sentinel-async`, or `cluster-async` features is required for this functionality.
-
-Here is an example of how to use `RedisPubSubAsync` to subscribe to a channel and process
-messages asynchronously.
-
-```rust
-use redis::ControlFlow;
-use sabi::{logic, setup_async};
-use sabi_redis::pubsub::{RedisPubSubAsync, RedisPubSubMsgAsyncDataSrc, RedisPubSubMsgAsyncDataConn};
-
 #[tokio::main]
-async fn main() -> Result<(), errs::Err> {
-    let mut pubsub = RedisPubSubAsync::new("redis://127.0.0.1:6379/0");
-    pubsub.subscribe("my-channel");
+async fn main() -> errs::Result<()> {
+    let _auto_shutdown = setup_async().await?;
 
-    pubsub.receive_async(async |msg| {
-        let mut data = sabi::tokio::DataHub::new();
-        data.uses("redis/pubsub", RedisPubSubMsgAsyncDataSrc::new(msg));
-        data.run_async(logic!(my_logic_async)).await.unwrap();
+    let mut subscriber = RedisPubSubSubscriberAsync::new(vec![
+        "redis://127.0.0.1:7000/",
+        "redis://127.0.0.1:7001/",
+        "redis://127.0.0.1:7002/",
+    ]);
+    subscriber.subscribe("channel-1");
+    subscriber.receive_async(async |msg| {
+        let mut hub = DataHub::new();
+        hub.uses("msg", RedisPubSubMsgDataSrcAsync::new(msg));
+        hub.txn_async(logic!(receive_logic_async)).await.unwrap();
         ControlFlow::Continue
     }).await
 }
-
-async fn my_logic_async(data: &mut impl MyData) -> errs::Result<()> {
-    let message = data.get_message_async().await?;
-    println!("Received: {}", message);
-    Ok(())
-}
-
-#[overridable]
-trait MyData {
-    async fn get_message_async(&mut self) -> errs::Result<String>;
-}
-
-#[overridable]
-trait MyDataAcc: sabi::tokio::DataAcc {
-    async fn get_message_async(&mut self) -> errs::Result<String> {
-        let data_conn = self.get_data_conn_async::<RedisPubSubMsgAsyncDataConn>("redis/pubsub").await?;
-        let msg = data_conn.get_message();
-        let payload: String = msg.get_payload().unwrap();
-        Ok(payload)
-    }
-}
-
-impl MyDataAcc for sabi::tokio::DataHub {}
-
-#[override_with(MyDataAcc)]
-impl MyData for sabi::tokio::DataHub {}
 ```
 
 ## Supported Rust versions
