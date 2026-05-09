@@ -6,6 +6,7 @@ use redis::Msg;
 use sabi::tokio::{AsyncGroup, DataConn, DataSrc};
 use std::sync::Arc;
 
+/// A struct that holds a Redis Pub/Sub message as an asynchronous data connection.
 pub struct RedisPubSubMsgDataConnAsync {
     msg: Arc<Msg>,
 }
@@ -15,6 +16,11 @@ impl RedisPubSubMsgDataConnAsync {
         Self { msg }
     }
 
+    /// Returns a reference to the underlying Redis Pub/Sub message.
+    ///
+    /// # Returns
+    ///
+    /// A reference to the `redis::Msg`.
     pub fn get_message(&self) -> &Msg {
         &self.msg
     }
@@ -33,11 +39,21 @@ impl DataConn for RedisPubSubMsgDataConnAsync {
     }
 }
 
+/// A struct that holds a Redis Pub/Sub message as an asynchronous data source.
 pub struct RedisPubSubMsgDataSrcAsync {
     msg: Arc<Msg>,
 }
 
 impl RedisPubSubMsgDataSrcAsync {
+    /// Creates a new `RedisPubSubMsgDataSrcAsync` with a Redis Pub/Sub message.
+    ///
+    /// # Arguments
+    ///
+    /// * `msg` - A `redis::Msg` received from an asynchronous Pub/Sub subscriber.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisPubSubMsgDataSrcAsync`.
     pub fn new(msg: Msg) -> Self {
         Self { msg: Arc::new(msg) }
     }
