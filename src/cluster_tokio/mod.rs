@@ -12,17 +12,30 @@ use std::future::Future;
 use std::{mem, pin};
 use tokio::time;
 
+/// Errors related to Redis data source and connection for asynchronous cluster configuration.
 #[derive(Debug)]
 pub enum RedisErrorAsync {
+    /// Indicates that the data source is not yet setup.
     NotSetupYet,
+    /// Indicates that the data source is already setup.
     AlreadySetup,
-    FailToConnect { config: Config },
-    FailToBuildPool { config: Config },
+    /// Failed to connect to Redis.
+    FailToConnect {
+        /// The Redis configuration.
+        config: Config,
+    },
+    /// Failed to build a Redis connection pool.
+    FailToBuildPool {
+        /// The Redis configuration.
+        config: Config,
+    },
+    /// Failed to get a connection from the pool.
     FailToGetConnectionFromPool,
 }
 
 type BoxedFuture = pin::Pin<Box<dyn Future<Output = errs::Result<()>> + Send + 'static>>;
 
+/// A struct that holds a Redis cluster connection and asynchronous transaction callbacks for cluster configuration.
 pub struct RedisDataConnAsync {
     conn: Connection,
     pre_commit_vec: Vec<BoxedFuture>,
@@ -40,10 +53,20 @@ impl RedisDataConnAsync {
         }
     }
 
+    /// Returns a mutable reference to the underlying Redis cluster multiplexed connection.
+    ///
+    /// # Returns
+    ///
+    /// A mutable reference to the `redis::aio::Connection`.
     pub fn get_connection(&mut self) -> &mut ClusterConnection {
         &mut self.conn
     }
 
+    /// Adds an asynchronous callback function to be executed before a transaction is committed.
+    ///
+    /// # Arguments
+    ///
+    /// * `f` - A callback function that takes a `ClusterConnection` and returns a `Future`.
     pub async fn add_pre_commit_async<F, Fut>(&mut self, mut f: F)
     where
         F: FnMut(ClusterConnection) -> Fut,
@@ -53,6 +76,11 @@ impl RedisDataConnAsync {
         self.pre_commit_vec.push(Box::pin(fut))
     }
 
+    /// Adds an asynchronous callback function to be executed after a transaction is committed.
+    ///
+    /// # Arguments
+    ///
+    /// * `f` - A callback function that takes a `ClusterConnection` and returns a `Future`.
     pub async fn add_post_commit_async<F, Fut>(&mut self, mut f: F)
     where
         F: FnMut(ClusterConnection) -> Fut,
@@ -62,6 +90,11 @@ impl RedisDataConnAsync {
         self.post_commit_vec.push(Box::pin(fut))
     }
 
+    /// Adds an asynchronous callback function to be executed when a transaction is rolled back or forced back.
+    ///
+    /// # Arguments
+    ///
+    /// * `f` - A callback function that takes a `ClusterConnection` and returns a `Future`.
     pub async fn add_force_back_async<F, Fut>(&mut self, mut f: F)
     where
         F: FnMut(ClusterConnection) -> Fut,
@@ -116,6 +149,7 @@ impl DataConn for RedisDataConnAsync {
     }
 }
 
+/// A struct that manages an asynchronous Redis cluster connection pool for cluster configuration.
 pub struct RedisDataSrcAsync {
     pool: Option<RedisPool>,
 }
@@ -126,6 +160,15 @@ enum RedisPool {
 }
 
 impl RedisDataSrcAsync {
+    /// Creates a new `RedisDataSrcAsync` with cluster node address strings.
+    ///
+    /// # Arguments
+    ///
+    /// * `addrs` - An iterator of string slices that hold the cluster node addresses.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisDataSrcAsync`.
     pub fn new<I>(addrs: I) -> Self
     where
         I: IntoIterator<Item: AsRef<str>>,
@@ -141,6 +184,16 @@ impl RedisDataSrcAsync {
         }
     }
 
+    /// Creates a new `RedisDataSrcAsync` with cluster node address strings and pool configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `addrs` - An iterator of string slices that hold the cluster node addresses.
+    /// * `pool_config` - The configuration for the connection pool.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisDataSrcAsync`.
     pub fn with_pool_config<I>(addrs: I, pool_config: PoolConfig) -> Self
     where
         I: IntoIterator<Item: AsRef<str>>,
@@ -156,6 +209,15 @@ impl RedisDataSrcAsync {
         }
     }
 
+    /// Creates a new `RedisDataSrcAsync` with a `deadpool_redis::cluster::Config`.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - A `deadpool_redis::cluster::Config`.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisDataSrcAsync`.
     pub fn with_config(config: Config) -> Self {
         Self {
             pool: Some(RedisPool::Config(Box::new(config))),
