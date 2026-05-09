@@ -29,6 +29,7 @@ mod sentinel_std;
 #[cfg(feature = "sentinel-async")]
 mod sentinel_tokio;
 
+/// A module for Redis Sentinel.
 #[cfg(any(feature = "sentinel", feature = "sentinel-async"))]
 pub mod sentinel {
     #[cfg(feature = "sentinel")]
@@ -51,6 +52,7 @@ mod cluster_std;
 #[cfg(feature = "cluster-async")]
 mod cluster_tokio;
 
+/// A module for Redis Cluster.
 #[cfg(any(feature = "cluster", feature = "cluster-async"))]
 pub mod cluster {
     #[cfg(feature = "cluster")]

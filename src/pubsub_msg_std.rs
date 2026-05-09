@@ -6,6 +6,7 @@ use redis::Msg;
 use sabi::{AsyncGroup, DataConn, DataSrc};
 use std::sync::Arc;
 
+/// A struct that holds a Redis Pub/Sub message as a data connection.
 pub struct RedisPubSubMsgDataConn {
     msg: Arc<Msg>,
 }
@@ -15,6 +16,11 @@ impl RedisPubSubMsgDataConn {
         Self { msg }
     }
 
+    /// Returns a reference to the underlying Redis Pub/Sub message.
+    ///
+    /// # Returns
+    ///
+    /// A reference to the `redis::Msg`.
     pub fn get_message(&self) -> &Msg {
         &self.msg
     }
@@ -32,11 +38,21 @@ impl DataConn for RedisPubSubMsgDataConn {
     }
 }
 
+/// A struct that holds a Redis Pub/Sub message as a data source.
 pub struct RedisPubSubMsgDataSrc {
     msg: Arc<Msg>,
 }
 
 impl RedisPubSubMsgDataSrc {
+    /// Creates a new `RedisPubSubMsgDataSrc` with a Redis Pub/Sub message.
+    ///
+    /// # Arguments
+    ///
+    /// * `msg` - A `redis::Msg` received from a Pub/Sub subscriber.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RedisPubSubMsgDataSrc`.
     pub fn new(msg: Msg) -> Self {
         Self { msg: Arc::new(msg) }
     }
